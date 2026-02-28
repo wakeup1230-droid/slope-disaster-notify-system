@@ -1,0 +1,311 @@
+{
+  "revetment_retaining": [
+    {
+      "id": "rr1",
+      "category": "revetment_retaining",
+      "mode_name": "基礎掏空流失",
+      "causes": [
+        { "id": "rr1_c1", "name": "河道沖刷" },
+        { "id": "rr1_c2", "name": "地下水位上升" },
+        { "id": "rr1_c3", "name": "管湧" },
+        { "id": "rr1_c4", "name": "施工不當" }
+      ]
+    },
+    {
+      "id": "rr2",
+      "category": "revetment_retaining",
+      "mode_name": "牆體龜裂破損",
+      "causes": [
+        { "id": "rr2_c1", "name": "地震" },
+        { "id": "rr2_c2", "name": "超載" },
+        { "id": "rr2_c3", "name": "材料老化" },
+        { "id": "rr2_c4", "name": "溫度應力" }
+      ]
+    },
+    {
+      "id": "rr3",
+      "category": "revetment_retaining",
+      "mode_name": "牆體傾斜位移",
+      "causes": [
+        { "id": "rr3_c1", "name": "土壓力過大" },
+        { "id": "rr3_c2", "name": "基礎不均勻沉陷" },
+        { "id": "rr3_c3", "name": "地震" },
+        { "id": "rr3_c4", "name": "邊坡滑動" }
+      ]
+    },
+    {
+      "id": "rr4",
+      "category": "revetment_retaining",
+      "mode_name": "牆背掏空沉陷",
+      "causes": [
+        { "id": "rr4_c1", "name": "排水不良" },
+        { "id": "rr4_c2", "name": "回填不實" },
+        { "id": "rr4_c3", "name": "管湧" }
+      ]
+    },
+    {
+      "id": "rr5",
+      "category": "revetment_retaining",
+      "mode_name": "護坡工破損",
+      "causes": [
+        { "id": "rr5_c1", "name": "沖刷" },
+        { "id": "rr5_c2", "name": "風化" },
+        { "id": "rr5_c3", "name": "樹根破壞" },
+        { "id": "rr5_c4", "name": "凍融" }
+      ]
+    },
+    {
+      "id": "rr6",
+      "category": "revetment_retaining",
+      "mode_name": "護岸基礎流失",
+      "causes": [
+        { "id": "rr6_c1", "name": "河道擺盪" },
+        { "id": "rr6_c2", "name": "洪水沖刷" },
+        { "id": "rr6_c3", "name": "採砂" }
+      ]
+    },
+    {
+      "id": "rr7",
+      "category": "revetment_retaining",
+      "mode_name": "洩水孔阻塞",
+      "causes": [
+        { "id": "rr7_c1", "name": "泥砂淤積" },
+        { "id": "rr7_c2", "name": "植物根系" },
+        { "id": "rr7_c3", "name": "施工缺陷" }
+      ]
+    },
+    {
+      "id": "rr8",
+      "category": "revetment_retaining",
+      "mode_name": "擋土牆整體滑動",
+      "causes": [
+        { "id": "rr8_c1", "name": "地基承載力不足" },
+        { "id": "rr8_c2", "name": "邊坡整體滑動" },
+        { "id": "rr8_c3", "name": "地震" }
+      ]
+    },
+    {
+      "id": "rr9",
+      "category": "revetment_retaining",
+      "mode_name": "排水設施損壞",
+      "causes": [
+        { "id": "rr9_c1", "name": "堵塞" },
+        { "id": "rr9_c2", "name": "破裂" },
+        { "id": "rr9_c3", "name": "容量不足" },
+        { "id": "rr9_c4", "name": "施工缺陷" }
+      ]
+    }
+  ],
+  "road_slope": [
+    {
+      "id": "rs1",
+      "category": "road_slope",
+      "mode_name": "落石",
+      "causes": [
+        { "id": "rs1_c1", "name": "風化" },
+        { "id": "rs1_c2", "name": "凍融" },
+        { "id": "rs1_c3", "name": "地震" },
+        { "id": "rs1_c4", "name": "根劈" },
+        { "id": "rs1_c5", "name": "降雨" }
+      ]
+    },
+    {
+      "id": "rs2",
+      "category": "road_slope",
+      "mode_name": "岩體崩塌",
+      "causes": [
+        { "id": "rs2_c1", "name": "節理發達" },
+        { "id": "rs2_c2", "name": "風化" },
+        { "id": "rs2_c3", "name": "地震" },
+        { "id": "rs2_c4", "name": "降雨入滲" }
+      ]
+    },
+    {
+      "id": "rs3",
+      "category": "road_slope",
+      "mode_name": "土石崩塌",
+      "causes": [
+        { "id": "rs3_c1", "name": "降雨入滲" },
+        { "id": "rs3_c2", "name": "地下水位上升" },
+        { "id": "rs3_c3", "name": "坡腳沖蝕" },
+        { "id": "rs3_c4", "name": "超載" }
+      ]
+    },
+    {
+      "id": "rs4",
+      "category": "road_slope",
+      "mode_name": "淺層滑動",
+      "causes": [
+        { "id": "rs4_c1", "name": "降雨入滲" },
+        { "id": "rs4_c2", "name": "坡面逕流" },
+        { "id": "rs4_c3", "name": "不當開挖" },
+        { "id": "rs4_c4", "name": "植被缺失" }
+      ]
+    },
+    {
+      "id": "rs5",
+      "category": "road_slope",
+      "mode_name": "深層滑動",
+      "causes": [
+        { "id": "rs5_c1", "name": "地層弱面" },
+        { "id": "rs5_c2", "name": "地下水" },
+        { "id": "rs5_c3", "name": "地震" },
+        { "id": "rs5_c4", "name": "坡腳侵蝕" }
+      ]
+    },
+    {
+      "id": "rs6",
+      "category": "road_slope",
+      "mode_name": "路基流失",
+      "causes": [
+        { "id": "rs6_c1", "name": "邊坡崩塌" },
+        { "id": "rs6_c2", "name": "洪水沖蝕" },
+        { "id": "rs6_c3", "name": "管湧" },
+        { "id": "rs6_c4", "name": "排水不良" }
+      ]
+    },
+    {
+      "id": "rs7",
+      "category": "road_slope",
+      "mode_name": "路面龜裂沉陷",
+      "causes": [
+        { "id": "rs7_c1", "name": "路基不均勻沉陷" },
+        { "id": "rs7_c2", "name": "車輛超載" },
+        { "id": "rs7_c3", "name": "地下水" },
+        { "id": "rs7_c4", "name": "材料老化" }
+      ]
+    },
+    {
+      "id": "rs8",
+      "category": "road_slope",
+      "mode_name": "邊坡沖蝕",
+      "causes": [
+        { "id": "rs8_c1", "name": "坡面逕流" },
+        { "id": "rs8_c2", "name": "集中流" },
+        { "id": "rs8_c3", "name": "植被不良" },
+        { "id": "rs8_c4", "name": "土質鬆散" }
+      ]
+    },
+    {
+      "id": "rs9",
+      "category": "road_slope",
+      "mode_name": "土石流",
+      "causes": [
+        { "id": "rs9_c1", "name": "豪雨" },
+        { "id": "rs9_c2", "name": "鬆散堆積物" },
+        { "id": "rs9_c3", "name": "陡峭地形" },
+        { "id": "rs9_c4", "name": "植被破壞" }
+      ]
+    },
+    {
+      "id": "rs10",
+      "category": "road_slope",
+      "mode_name": "地滑",
+      "causes": [
+        { "id": "rs10_c1", "name": "地質構造" },
+        { "id": "rs10_c2", "name": "降雨" },
+        { "id": "rs10_c3", "name": "地震" },
+        { "id": "rs10_c4", "name": "人為開發" }
+      ]
+    }
+  ],
+  "bridge": [
+    {
+      "id": "br1",
+      "category": "bridge",
+      "mode_name": "橋墩基礎裸露掏空",
+      "causes": [
+        { "id": "br1_c1", "name": "河床沖刷" },
+        { "id": "br1_c2", "name": "洪水" },
+        { "id": "br1_c3", "name": "土石流衝擊" }
+      ]
+    },
+    {
+      "id": "br2",
+      "category": "bridge",
+      "mode_name": "橋墩損壞傾斜",
+      "causes": [
+        { "id": "br2_c1", "name": "河道沖刷" },
+        { "id": "br2_c2", "name": "漂流物撞擊" },
+        { "id": "br2_c3", "name": "地震" },
+        { "id": "br2_c4", "name": "超載" }
+      ]
+    },
+    {
+      "id": "br3",
+      "category": "bridge",
+      "mode_name": "橋面版損壞",
+      "causes": [
+        { "id": "br3_c1", "name": "超載" },
+        { "id": "br3_c2", "name": "材料老化" },
+        { "id": "br3_c3", "name": "鋼筋腐蝕" },
+        { "id": "br3_c4", "name": "溫度應力" }
+      ]
+    },
+    {
+      "id": "br4",
+      "category": "bridge",
+      "mode_name": "支承損壞位移",
+      "causes": [
+        { "id": "br4_c1", "name": "地震" },
+        { "id": "br4_c2", "name": "超載" },
+        { "id": "br4_c3", "name": "材料老化" },
+        { "id": "br4_c4", "name": "設計不當" }
+      ]
+    },
+    {
+      "id": "br5",
+      "category": "bridge",
+      "mode_name": "伸縮縫損壞",
+      "causes": [
+        { "id": "br5_c1", "name": "材料老化" },
+        { "id": "br5_c2", "name": "超載" },
+        { "id": "br5_c3", "name": "溫度變化" },
+        { "id": "br5_c4", "name": "施工不當" }
+      ]
+    },
+    {
+      "id": "br6",
+      "category": "bridge",
+      "mode_name": "護欄損壞",
+      "causes": [
+        { "id": "br6_c1", "name": "車輛撞擊" },
+        { "id": "br6_c2", "name": "材料老化" },
+        { "id": "br6_c3", "name": "洪水" },
+        { "id": "br6_c4", "name": "地震" }
+      ]
+    },
+    {
+      "id": "br7",
+      "category": "bridge",
+      "mode_name": "引道路基流失",
+      "causes": [
+        { "id": "br7_c1", "name": "洪水沖蝕" },
+        { "id": "br7_c2", "name": "邊坡崩塌" },
+        { "id": "br7_c3", "name": "排水不良" }
+      ]
+    },
+    {
+      "id": "br8",
+      "category": "bridge",
+      "mode_name": "河道淤積改道",
+      "causes": [
+        { "id": "br8_c1", "name": "泥砂淤積" },
+        { "id": "br8_c2", "name": "河道變遷" },
+        { "id": "br8_c3", "name": "橋孔不足" }
+      ]
+    },
+    {
+      "id": "br9",
+      "category": "bridge",
+      "mode_name": "橋梁結構裂損",
+      "causes": [
+        { "id": "br9_c1", "name": "地震" },
+        { "id": "br9_c2", "name": "超載" },
+        { "id": "br9_c3", "name": "疲勞" },
+        { "id": "br9_c4", "name": "材料劣化" },
+        { "id": "br9_c5", "name": "鋼筋腐蝕" }
+      ]
+    }
+  ]
+}

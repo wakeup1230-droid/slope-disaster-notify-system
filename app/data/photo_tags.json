@@ -1,0 +1,370 @@
+{
+  "P1": {
+    "type_id": "P1",
+    "name": "全景照",
+    "required": true,
+    "description": "記錄災點整體環境與現場概況。",
+    "tag_categories": [
+      {
+        "category_id": "direction",
+        "category_name": "拍攝方向",
+        "multi_select": true,
+        "tags": [
+          { "id": "upstream", "label": "上游" },
+          { "id": "downstream", "label": "下游" },
+          { "id": "mountain_side", "label": "山側" },
+          { "id": "valley_side", "label": "谷側" },
+          { "id": "south", "label": "南向" },
+          { "id": "north", "label": "北向" },
+          { "id": "east", "label": "東向" },
+          { "id": "west", "label": "西向" }
+        ]
+      },
+      {
+        "category_id": "weather",
+        "category_name": "天氣狀況",
+        "multi_select": true,
+        "tags": [
+          { "id": "sunny", "label": "晴天" },
+          { "id": "cloudy", "label": "陰天" },
+          { "id": "rainy", "label": "雨天" },
+          { "id": "heavy_rain", "label": "大雨" },
+          { "id": "fog", "label": "霧" }
+        ]
+      },
+      {
+        "category_id": "visibility",
+        "category_name": "能見度",
+        "multi_select": true,
+        "tags": [
+          { "id": "good", "label": "良好" },
+          { "id": "normal", "label": "普通" },
+          { "id": "poor", "label": "不佳" }
+        ]
+      }
+    ]
+  },
+  "P2": {
+    "type_id": "P2",
+    "name": "災損近照",
+    "required": true,
+    "description": "聚焦災損部位細節，供損壞判讀。",
+    "tag_categories": [
+      {
+        "category_id": "severity",
+        "category_name": "嚴重程度",
+        "multi_select": false,
+        "tags": [
+          { "id": "minor", "label": "輕微" },
+          { "id": "moderate", "label": "中等" },
+          { "id": "severe", "label": "嚴重" },
+          { "id": "critical", "label": "極嚴重" }
+        ]
+      },
+      {
+        "category_id": "structure_type",
+        "category_name": "結構類型",
+        "multi_select": true,
+        "tags": [
+          { "id": "retaining_wall", "label": "擋土牆" },
+          { "id": "slope_protection", "label": "護坡" },
+          { "id": "slope", "label": "邊坡" },
+          { "id": "subgrade", "label": "路基" },
+          { "id": "pavement", "label": "路面" },
+          { "id": "guardrail", "label": "護欄" },
+          { "id": "bridge", "label": "橋梁" },
+          { "id": "culvert", "label": "涵洞" }
+        ]
+      },
+      {
+        "category_id": "damage_features",
+        "category_name": "損壞特徵",
+        "multi_select": true,
+        "tags": [
+          { "id": "crack", "label": "裂縫" },
+          { "id": "spalling", "label": "剝落" },
+          { "id": "displacement", "label": "位移" },
+          { "id": "tilt", "label": "傾斜" },
+          { "id": "settlement", "label": "沉陷" },
+          { "id": "undermining", "label": "掏空" },
+          { "id": "collapse", "label": "崩塌" },
+          { "id": "scour", "label": "沖刷" },
+          { "id": "falling_debris", "label": "掉落物" },
+          { "id": "rebar_exposed", "label": "鋼筋裸露" }
+        ]
+      }
+    ]
+  },
+  "P3": {
+    "type_id": "P3",
+    "name": "道路影響照",
+    "required": true,
+    "description": "記錄災害對道路通行與交通影響。",
+    "tag_categories": [
+      {
+        "category_id": "impact_extent",
+        "category_name": "影響範圍",
+        "multi_select": true,
+        "tags": [
+          { "id": "single_lane", "label": "單車道" },
+          { "id": "double_lane", "label": "雙車道" },
+          { "id": "all_lanes", "label": "全部車道" },
+          { "id": "shoulder", "label": "路肩" }
+        ]
+      },
+      {
+        "category_id": "traffic_status",
+        "category_name": "通行狀態",
+        "multi_select": true,
+        "tags": [
+          { "id": "normal", "label": "正常通行" },
+          { "id": "single_line", "label": "單線通行" },
+          { "id": "controlled", "label": "管制通行" },
+          { "id": "blocked", "label": "完全中斷" }
+        ]
+      },
+      {
+        "category_id": "traffic_control",
+        "category_name": "交通管制",
+        "multi_select": true,
+        "tags": [
+          { "id": "none", "label": "無管制" },
+          { "id": "cones", "label": "交通錐" },
+          { "id": "jersey_barrier", "label": "紐澤西護欄" },
+          { "id": "warning_lights", "label": "警示燈" },
+          { "id": "manual_control", "label": "人員指揮" }
+        ]
+      }
+    ]
+  },
+  "P4": {
+    "type_id": "P4",
+    "name": "邊坡全景",
+    "required": true,
+    "description": "記錄邊坡型態、植被與排水配置。",
+    "tag_categories": [
+      {
+        "category_id": "slope_type",
+        "category_name": "坡面類型",
+        "multi_select": true,
+        "tags": [
+          { "id": "rock_slope", "label": "岩質邊坡" },
+          { "id": "soil_slope", "label": "土質邊坡" },
+          { "id": "mixed_slope", "label": "混合邊坡" },
+          { "id": "engineered_slope", "label": "人工邊坡" },
+          { "id": "natural_slope", "label": "自然邊坡" }
+        ]
+      },
+      {
+        "category_id": "vegetation_cover",
+        "category_name": "植被覆蓋",
+        "multi_select": true,
+        "tags": [
+          { "id": "no_vegetation", "label": "無植被" },
+          { "id": "grass", "label": "草生" },
+          { "id": "shrub", "label": "灌木" },
+          { "id": "tree", "label": "喬木" },
+          { "id": "mixed_vegetation", "label": "混合植被" }
+        ]
+      },
+      {
+        "category_id": "drainage",
+        "category_name": "排水設施",
+        "multi_select": true,
+        "tags": [
+          { "id": "ditch_present", "label": "有排水溝" },
+          { "id": "ditch_absent", "label": "無排水溝" },
+          { "id": "drain_pipe", "label": "排水管" },
+          { "id": "intercept_ditch", "label": "截水溝" },
+          { "id": "poor_drainage", "label": "排水不良" }
+        ]
+      }
+    ]
+  },
+  "P5": {
+    "type_id": "P5",
+    "name": "里程牌照",
+    "required": false,
+    "description": "確認災點里程位置與辨識清晰度。",
+    "tag_categories": [
+      {
+        "category_id": "milestone_info",
+        "category_name": "里程資訊",
+        "multi_select": true,
+        "tags": [
+          { "id": "clear", "label": "清晰可辨" },
+          { "id": "partially_blur", "label": "部分模糊" },
+          { "id": "severe_blur", "label": "嚴重模糊" }
+        ]
+      }
+    ]
+  },
+  "P6": {
+    "type_id": "P6",
+    "name": "水路排水照",
+    "required": false,
+    "description": "記錄排水設施型式及阻塞狀況。",
+    "tag_categories": [
+      {
+        "category_id": "drainage_facility_type",
+        "category_name": "排水設施類型",
+        "multi_select": true,
+        "tags": [
+          { "id": "side_ditch", "label": "邊溝" },
+          { "id": "lateral_ditch", "label": "側溝" },
+          { "id": "culvert_pipe", "label": "涵管" },
+          { "id": "intercept_ditch", "label": "截水溝" },
+          { "id": "drain_pipe", "label": "排水管" },
+          { "id": "catch_basin", "label": "集水井" },
+          { "id": "water_barrier_wall", "label": "擋水牆" }
+        ]
+      },
+      {
+        "category_id": "blockage_level",
+        "category_name": "堵塞程度",
+        "multi_select": true,
+        "tags": [
+          { "id": "clear_flow", "label": "暢通" },
+          { "id": "partial_block", "label": "部分堵塞" },
+          { "id": "severe_block", "label": "嚴重堵塞" },
+          { "id": "fully_blocked", "label": "完全堵塞" }
+        ]
+      }
+    ]
+  },
+  "P7": {
+    "type_id": "P7",
+    "name": "結構物照",
+    "required": false,
+    "description": "記錄結構物型式與受損位置。",
+    "tag_categories": [
+      {
+        "category_id": "structure_kind",
+        "category_name": "結構物類型",
+        "multi_select": true,
+        "tags": [
+          { "id": "retaining_wall", "label": "擋土牆" },
+          { "id": "slope_protection", "label": "護坡" },
+          { "id": "culvert", "label": "涵洞" },
+          { "id": "bridge", "label": "橋梁" },
+          { "id": "tunnel", "label": "隧道" },
+          { "id": "guardrail", "label": "護欄" },
+          { "id": "slope_anchor_bolt", "label": "邊坡錨釘" },
+          { "id": "ground_anchor", "label": "地錨" }
+        ]
+      },
+      {
+        "category_id": "damage_part",
+        "category_name": "損壞部位",
+        "multi_select": true,
+        "tags": [
+          { "id": "foundation", "label": "基礎" },
+          { "id": "wall_body", "label": "牆體" },
+          { "id": "top", "label": "頂部" },
+          { "id": "joint", "label": "接縫" },
+          { "id": "weep_hole", "label": "洩水孔" },
+          { "id": "expansion_joint", "label": "伸縮縫" },
+          { "id": "bearing", "label": "支承" }
+        ]
+      }
+    ]
+  },
+  "P8": {
+    "type_id": "P8",
+    "name": "尺寸參考照",
+    "required": false,
+    "description": "提供災損尺寸估算之對照資訊。",
+    "tag_categories": [
+      {
+        "category_id": "reference_object",
+        "category_name": "參考物",
+        "multi_select": true,
+        "tags": [
+          { "id": "person", "label": "人員" },
+          { "id": "vehicle", "label": "車輛" },
+          { "id": "ruler", "label": "量尺" },
+          { "id": "coin", "label": "硬幣" },
+          { "id": "other", "label": "其他" }
+        ]
+      },
+      {
+        "category_id": "estimated_size",
+        "category_name": "估計尺寸",
+        "multi_select": true,
+        "tags": [
+          { "id": "lt_1m", "label": "小於1公尺" },
+          { "id": "1_3m", "label": "1-3公尺" },
+          { "id": "3_5m", "label": "3-5公尺" },
+          { "id": "5_10m", "label": "5-10公尺" },
+          { "id": "gt_10m", "label": "大於10公尺" }
+        ]
+      }
+    ]
+  },
+  "P9": {
+    "type_id": "P9",
+    "name": "對比照",
+    "required": false,
+    "description": "比較不同時間點災況變化。",
+    "tag_categories": [
+      {
+        "category_id": "capture_timepoint",
+        "category_name": "拍攝時間點",
+        "multi_select": true,
+        "tags": [
+          { "id": "before_disaster", "label": "災前" },
+          { "id": "after_disaster", "label": "災後" },
+          { "id": "before_construction", "label": "施工前" },
+          { "id": "during_construction", "label": "施工中" },
+          { "id": "after_construction", "label": "施工後" }
+        ]
+      },
+      {
+        "category_id": "change_description",
+        "category_name": "變化描述",
+        "multi_select": true,
+        "tags": [
+          { "id": "expanded", "label": "範圍擴大" },
+          { "id": "reduced", "label": "範圍縮小" },
+          { "id": "no_obvious_change", "label": "無明顯變化" },
+          { "id": "new_hazard_point", "label": "新增災害點" },
+          { "id": "repaired", "label": "已修復" }
+        ]
+      }
+    ]
+  },
+  "P10": {
+    "type_id": "P10",
+    "name": "周邊環境照",
+    "required": false,
+    "description": "記錄周邊設施與災害波及程度。",
+    "tag_categories": [
+      {
+        "category_id": "surrounding_facilities",
+        "category_name": "周邊設施",
+        "multi_select": true,
+        "tags": [
+          { "id": "residential", "label": "住宅" },
+          { "id": "school", "label": "學校" },
+          { "id": "factory", "label": "工廠" },
+          { "id": "farmland", "label": "農田" },
+          { "id": "river", "label": "河川" },
+          { "id": "bridge", "label": "橋梁" },
+          { "id": "power_facility", "label": "電力設施" },
+          { "id": "water_supply_facility", "label": "自來水設施" }
+        ]
+      },
+      {
+        "category_id": "impact_extent",
+        "category_name": "影響範圍",
+        "multi_select": true,
+        "tags": [
+          { "id": "road_only", "label": "僅道路" },
+          { "id": "within_50m", "label": "波及周邊50m以內" },
+          { "id": "50_200m", "label": "波及周邊50-200m" },
+          { "id": "over_200m", "label": "波及周邊200m以上" }
+        ]
+      }
+    ]
+  }
+}

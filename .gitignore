@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Storage (runtime data - don't commit)
+storage/cases/
+storage/users/
+storage/sessions/
+storage/locks/
+
+# Keep storage directories via .gitkeep
+!storage/cases/.gitkeep
+!storage/users/.gitkeep
+!storage/sessions/.gitkeep
+!storage/locks/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Temporary files
+*.tmp
+*.bak

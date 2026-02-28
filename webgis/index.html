@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>邊坡災害通報與資訊整合管理系統 — WebGIS 地圖展示</title>
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin=""
+    >
+    <style>
+        :root {
+            --bg-panel: rgba(255, 255, 255, 0.94);
+            --bg-panel-strong: rgba(255, 255, 255, 0.98);
+            --bg-soft: #f4f7fb;
+            --text-main: #1b2a3a;
+            --text-sub: #4a5c6f;
+            --stroke: #d6e2ee;
+            --shadow: 0 16px 40px rgba(18, 40, 68, 0.16);
+            --pending: #ff9800;
+            --progress: #2196f3;
+            --closed: #4caf50;
+            --returned: #f44336;
+            --accent: #0f6fbd;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            color: var(--text-main);
+            font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
+            background: radial-gradient(circle at 20% 10%, #d9eefc 0%, #f5f8fc 48%, #edf2f8 100%);
+        }
+
+        #map {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        .panel {
+            position: fixed;
+            z-index: 600;
+            backdrop-filter: blur(8px);
+            background: var(--bg-panel);
+            border: 1px solid var(--stroke);
+            border-radius: 14px;
+            box-shadow: var(--shadow);
+            transition: transform 0.28s ease, opacity 0.28s ease;
+        }
+
+        .panel-title {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+        }
+
+        .text-sub {
+            color: var(--text-sub);
+            font-size: 13px;
+        }
+
+        .filter-panel {
+            top: 14px;
+            right: 14px;
+            width: min(340px, calc(100vw - 28px));
+            padding: 14px 14px 12px;
+        }
+
+        .filter-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .group {
+            border: 1px solid var(--stroke);
+            background: var(--bg-panel-strong);
+            border-radius: 12px;
+            padding: 10px;
+        }
+
+        .group-title {
+            margin: 0 0 6px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-sub);
+        }
+
+        .check-list {
+            display: grid;
+            gap: 6px;
+            max-height: 170px;
+            overflow: auto;
+            padding-right: 2px;
+        }
+
+        .check-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 2px;
+            font-size: 13px;
+        }
+
+        .check-item input {
+            accent-color: var(--accent);
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+
+        .btn {
+            border: 0;
+            border-radius: 10px;
+            padding: 9px 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s ease, filter 0.2s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            filter: saturate(1.05);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #1e88e5, #0f6fbd);
+            color: #fff;
+        }
+
+        .btn-ghost {
+            background: #edf3fa;
+            color: #25445f;
+        }
+
+        .legend-panel {
+            left: 14px;
+            bottom: 14px;
+            width: 220px;
+            padding: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+            font-size: 13px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+        }
+
+        .info-panel {
+            right: 14px;
+            bottom: 14px;
+            width: min(280px, calc(100vw - 28px));
+            padding: 12px;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 13px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .loading {
+            position: fixed;
+            inset: 0;
+            z-index: 900;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(10, 25, 38, 0.38);
+        }
+
+        .loading.active {
+            display: flex;
+        }
+
+        .loading-card {
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid var(--stroke);
+            border-radius: 14px;
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: var(--shadow);
+            font-weight: 700;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 3px solid #c8d8e9;
+            border-top-color: #0f6fbd;
+            border-radius: 999px;
+            animation: spin 0.85s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .toast {
+            position: fixed;
+            top: 18px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-18px);
+            z-index: 950;
+            background: rgba(183, 26, 26, 0.95);
+            color: #fff;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-size: 13px;
+            box-shadow: 0 12px 30px rgba(112, 24, 24, 0.36);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.28s ease, transform 0.28s ease;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .detail-panel {
+            position: fixed;
+            z-index: 700;
+            top: 0;
+            right: 0;
+            height: 100vh;
+            width: min(380px, 92vw);
+            background: rgba(255, 255, 255, 0.98);
+            border-left: 1px solid var(--stroke);
+            box-shadow: -12px 0 34px rgba(19, 38, 56, 0.2);
+            transform: translateX(102%);
+            transition: transform 0.28s ease;
+            padding: 14px;
+            overflow: auto;
+        }
+
+        .detail-panel.show {
+            transform: translateX(0);
+        }
+
+        .detail-close {
+            float: right;
+            border: 0;
+            width: 30px;
+            height: 30px;
+            border-radius: 999px;
+            background: #eff4fa;
+            color: #35566e;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .mobile-toggle {
+            display: none;
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 610;
+            border: 0;
+            border-radius: 999px;
+            padding: 10px 12px;
+            background: #0f6fbd;
+            color: #fff;
+            box-shadow: var(--shadow);
+            font-weight: 700;
+        }
+
+        .thumb {
+            width: 100%;
+            max-height: 145px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid var(--stroke);
+            margin-top: 8px;
+        }
+
+        .empty-tip {
+            margin-top: 8px;
+            color: var(--text-sub);
+            font-size: 13px;
+        }
+
+        .popup-link {
+            display: inline-block;
+            margin-top: 8px;
+            color: #0f6fbd;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        @media (max-width: 900px) {
+            .filter-panel {
+                top: 58px;
+                right: 10px;
+                max-height: calc(100vh - 72px);
+                overflow: auto;
+            }
+
+            .mobile-toggle {
+                display: inline-block;
+            }
+
+            .filter-panel.collapsed {
+                transform: translateY(-24px);
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            .legend-panel {
+                left: 10px;
+                bottom: 10px;
+            }
+
+            .info-panel {
+                right: 10px;
+                bottom: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="map" aria-label="WebGIS 地圖"></div>
+
+    <button id="filterToggle" class="mobile-toggle" type="button">篩選選單</button>
+
+    <section id="filterPanel" class="panel filter-panel">
+        <h2 class="panel-title">篩選條件</h2>
+        <p class="text-sub">依工務段與案件狀態篩選地圖點位</p>
+        <div class="filter-grid">
+            <div class="group">
+                <h3 class="group-title">工務段</h3>
+                <div id="districtFilters" class="check-list"></div>
+            </div>
+            <div class="group">
+                <h3 class="group-title">案件狀態</h3>
+                <div id="statusFilters" class="check-list"></div>
+            </div>
+        </div>
+        <div class="btn-row">
+            <button id="reloadButton" type="button" class="btn btn-primary">重新載入</button>
+            <button id="toggleAllButton" type="button" class="btn btn-ghost">取消全選</button>
+        </div>
+    </section>
+
+    <section class="panel legend-panel">
+        <h2 class="panel-title">圖例</h2>
+        <div class="legend-item"><span class="dot" style="background: var(--pending)"></span>待審核</div>
+        <div class="legend-item"><span class="dot" style="background: var(--progress)"></span>處理中</div>
+        <div class="legend-item"><span class="dot" style="background: var(--closed)"></span>已結案</div>
+        <div class="legend-item"><span class="dot" style="background: var(--returned)"></span>已退回</div>
+        <div class="legend-item" id="visibleCount">可視案件：0</div>
+    </section>
+
+    <section class="panel info-panel">
+        <h2 class="panel-title">資訊摘要</h2>
+        <div class="metric"><span>總案件數</span><strong id="totalCount">0</strong></div>
+        <div class="metric"><span>待審核</span><strong id="countPending">0</strong></div>
+        <div class="metric"><span>處理中</span><strong id="countProgress">0</strong></div>
+        <div class="metric"><span>已結案</span><strong id="countClosed">0</strong></div>
+        <div class="metric"><span>已退回</span><strong id="countReturned">0</strong></div>
+        <p class="text-sub" id="lastRefresh">最後更新：--</p>
+        <p class="empty-tip" id="emptyTip" hidden>目前沒有符合條件的案件資料。</p>
+    </section>
+
+    <section id="detailPanel" class="detail-panel" aria-live="polite">
+        <button id="detailClose" class="detail-close" type="button" aria-label="關閉詳情">×</button>
+        <h2 class="panel-title">案件詳情</h2>
+        <div id="detailContent" class="text-sub" style="margin-top: 8px; line-height: 1.7; white-space: pre-wrap;"></div>
+    </section>
+
+    <div id="loadingOverlay" class="loading" role="status" aria-live="polite">
+        <div class="loading-card"><span class="spinner" aria-hidden="true"></span>資料載入中...</div>
+    </div>
+
+    <div id="errorToast" class="toast" role="alert"></div>
+
+    <script
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin=""
+    ></script>
+    <script>
+        const CONFIG = {
+            API_BASE_URL: '/vendor',
+            API_KEY: 'your-api-key-here',
+            REFRESH_INTERVAL_MS: 60000,
+        };
+
+        const STATUS_LABELS = {
+            pending_review: '待審核',
+            in_progress: '處理中',
+            closed: '已結案',
+            returned: '已退回',
+        };
+
+        const URGENCY_LABELS = {
+            normal: '一般',
+            urgent: '緊急',
+            emergency: '緊急搶修',
+        };
+
+        const DISTRICT_LABELS = {
+            jingmei: '景美工務段',
+            zhonghe: '中和工務段',
+            zhongli: '中壢工務段',
+            hsinchu: '新竹工務段',
+            fuxing: '復興工務段',
+            keelung: '基隆工務段',
+        };
+
+        const STATUS_COLORS = {
+            pending_review: '#FF9800',
+            in_progress: '#2196F3',
+            closed: '#4CAF50',
+            returned: '#F44336',
+        };
+
+        const DISTRICT_KEYS = Object.keys(DISTRICT_LABELS);
+        const STATUS_KEYS = Object.keys(STATUS_LABELS);
+
+        const state = {
+            cases: [],
+            markers: [],
+            selectedDistricts: new Set(DISTRICT_KEYS),
+            selectedStatuses: new Set(STATUS_KEYS),
+        };
+
+        const map = L.map('map', { zoomControl: true }).setView([24.8, 121.3], 10);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 19,
+        }).addTo(map);
+
+        const markerLayer = L.layerGroup().addTo(map);
+
+        const districtFiltersEl = document.getElementById('districtFilters');
+        const statusFiltersEl = document.getElementById('statusFilters');
+        const reloadButton = document.getElementById('reloadButton');
+        const toggleAllButton = document.getElementById('toggleAllButton');
+        const filterToggle = document.getElementById('filterToggle');
+        const filterPanel = document.getElementById('filterPanel');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const errorToast = document.getElementById('errorToast');
+        const visibleCount = document.getElementById('visibleCount');
+        const totalCount = document.getElementById('totalCount');
+        const countPending = document.getElementById('countPending');
+        const countProgress = document.getElementById('countProgress');
+        const countClosed = document.getElementById('countClosed');
+        const countReturned = document.getElementById('countReturned');
+        const lastRefresh = document.getElementById('lastRefresh');
+        const emptyTip = document.getElementById('emptyTip');
+        const detailPanel = document.getElementById('detailPanel');
+        const detailClose = document.getElementById('detailClose');
+        const detailContent = document.getElementById('detailContent');
+
+        function createFilterCheckbox(container, key, label, checked, onChange) {
+            const row = document.createElement('label');
+            row.className = 'check-item';
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.checked = checked;
+            input.dataset.key = key;
+            input.addEventListener('change', onChange);
+            const text = document.createElement('span');
+            text.textContent = label;
+            row.append(input, text);
+            container.appendChild(row);
+        }
+
+        function renderFilterControls() {
+            districtFiltersEl.innerHTML = '';
+            statusFiltersEl.innerHTML = '';
+
+            DISTRICT_KEYS.forEach((key) => {
+                createFilterCheckbox(
+                    districtFiltersEl,
+                    key,
+                    DISTRICT_LABELS[key],
+                    state.selectedDistricts.has(key),
+                    (event) => {
+                        if (event.target.checked) {
+                            state.selectedDistricts.add(key);
+                        } else {
+                            state.selectedDistricts.delete(key);
+                        }
+                        renderMarkers();
+                        refreshToggleButtonText();
+                    }
+                );
+            });
+
+            STATUS_KEYS.forEach((key) => {
+                createFilterCheckbox(
+                    statusFiltersEl,
+                    key,
+                    STATUS_LABELS[key],
+                    state.selectedStatuses.has(key),
+                    (event) => {
+                        if (event.target.checked) {
+                            state.selectedStatuses.add(key);
+                        } else {
+                            state.selectedStatuses.delete(key);
+                        }
+                        renderMarkers();
+                        refreshToggleButtonText();
+                    }
+                );
+            });
+        }
+
+        function refreshToggleButtonText() {
+            const allSelected =
+                state.selectedDistricts.size === DISTRICT_KEYS.length &&
+                state.selectedStatuses.size === STATUS_KEYS.length;
+            toggleAllButton.textContent = allSelected ? '取消全選' : '全選';
+        }
+
+        function truncateText(value, length = 100) {
+            if (!value) return '無';
+            return value.length > length ? `${value.slice(0, length)}...` : value;
+        }
+
+        function formatTime(value) {
+            if (!value) return '無';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return value;
+            return date.toLocaleString('zh-TW', { hour12: false });
+        }
+
+        function setLoading(visible) {
+            loadingOverlay.classList.toggle('active', visible);
+        }
+
+        function showError(message) {
+            errorToast.textContent = message;
+            errorToast.classList.add('show');
+            window.setTimeout(() => errorToast.classList.remove('show'), 3000);
+        }
+
+        function getStatusBadge(status) {
+            const color = STATUS_COLORS[status] || '#607d8b';
+            const label = STATUS_LABELS[status] || status;
+            return `<span class="status-badge" style="background:${color}">${label}</span>`;
+        }
+
+        function buildPopupHtml(caseItem) {
+            const thumb = caseItem.thumbnail_url
+                ? `<img src="${caseItem.thumbnail_url}" alt="案件縮圖" class="thumb">`
+                : '';
+            const district = caseItem.district_name || DISTRICT_LABELS[caseItem.district_id] || '未填寫';
+            const road = caseItem.road_number || '未填寫';
+            const milepost = caseItem.milepost?.milepost_display || '未提供';
+            const urgency = URGENCY_LABELS[caseItem.urgency] || caseItem.urgency || '未填寫';
+            const damage = caseItem.damage_mode_name || '未填寫';
+
+            return `
+                <div style="min-width:230px; max-width:280px; line-height:1.55; font-size:13px;">
+                    <div style="font-weight:800; margin-bottom:6px;">案件編號：${caseItem.case_id || '未知'}</div>
+                    <div>${getStatusBadge(caseItem.review_status)}</div>
+                    <div style="margin-top:6px;"><strong>位置：</strong>${district} ${road}</div>
+                    <div><strong>里程樁：</strong>${milepost}</div>
+                    <div><strong>災害型態：</strong>${damage}</div>
+                    <div><strong>緊急程度：</strong>${urgency}</div>
+                    <div><strong>描述：</strong>${truncateText(caseItem.description, 100)}</div>
+                    <div><strong>照片數：</strong>${caseItem.photo_count ?? 0}</div>
+                    <div><strong>建立：</strong>${formatTime(caseItem.created_at)}</div>
+                    <div><strong>更新：</strong>${formatTime(caseItem.updated_at)}</div>
+                    ${thumb}
+                    <a href="#" class="popup-link" data-case-id="${caseItem.case_id}">查看詳情</a>
+                </div>
+            `;
+        }
+
+        function showCaseDetail(caseItem) {
+            const district = caseItem.district_name || DISTRICT_LABELS[caseItem.district_id] || '未填寫';
+            const lines = [
+                `案件編號：${caseItem.case_id || '未知'}`,
+                `工務段：${district}`,
+                `道路：${caseItem.road_number || '未填寫'}`,
+                `里程樁：${caseItem.milepost?.milepost_display || '未提供'}`,
+                `災害型態：${caseItem.damage_mode_name || '未填寫'}`,
+                `狀態：${STATUS_LABELS[caseItem.review_status] || caseItem.review_status || '未填寫'}`,
+                `緊急程度：${URGENCY_LABELS[caseItem.urgency] || caseItem.urgency || '未填寫'}`,
+                `照片數：${caseItem.photo_count ?? 0}`,
+                `建立時間：${formatTime(caseItem.created_at)}`,
+                `更新時間：${formatTime(caseItem.updated_at)}`,
+                '',
+                `描述：${caseItem.description || '無'}`,
+            ];
+            detailContent.textContent = lines.join('\n');
+            detailPanel.classList.add('show');
+        }
+
+        function isCaseVisible(caseItem) {
+            return (
+                state.selectedDistricts.has(caseItem.district_id) &&
+                state.selectedStatuses.has(caseItem.review_status)
+            );
+        }
+
+        function renderMarkers() {
+            markerLayer.clearLayers();
+            let visible = 0;
+
+            state.cases.forEach((caseItem) => {
+                const lat = caseItem.coordinate?.lat;
+                const lon = caseItem.coordinate?.lon;
+                if (typeof lat !== 'number' || typeof lon !== 'number') {
+                    return;
+                }
+                if (!isCaseVisible(caseItem)) {
+                    return;
+                }
+
+                const color = STATUS_COLORS[caseItem.review_status] || '#607d8b';
+                const marker = L.circleMarker([lat, lon], {
+                    radius: 7,
+                    color,
+                    weight: 2,
+                    fillColor: color,
+                    fillOpacity: 0.82,
+                });
+
+                marker.bindPopup(buildPopupHtml(caseItem), { maxWidth: 300 });
+                marker.on('popupopen', () => {
+                    const link = document.querySelector(`[data-case-id="${caseItem.case_id}"]`);
+                    if (link) {
+                        link.addEventListener('click', (event) => {
+                            event.preventDefault();
+                            showCaseDetail(caseItem);
+                        }, { once: true });
+                    }
+                });
+
+                marker.addTo(markerLayer);
+                visible += 1;
+            });
+
+            visibleCount.textContent = `可視案件：${visible}`;
+            emptyTip.hidden = visible !== 0;
+            updateSummary();
+        }
+
+        function updateSummary() {
+            totalCount.textContent = String(state.cases.length);
+            const counts = {
+                pending_review: 0,
+                in_progress: 0,
+                closed: 0,
+                returned: 0,
+            };
+
+            state.cases.forEach((item) => {
+                if (!isCaseVisible(item)) return;
+                if (counts[item.review_status] !== undefined) {
+                    counts[item.review_status] += 1;
+                }
+            });
+
+            countPending.textContent = String(counts.pending_review);
+            countProgress.textContent = String(counts.in_progress);
+            countClosed.textContent = String(counts.closed);
+            countReturned.textContent = String(counts.returned);
+            lastRefresh.textContent = `最後更新：${new Date().toLocaleTimeString('zh-TW', { hour12: false })}`;
+        }
+
+        async function fetchCases() {
+            setLoading(true);
+            try {
+                const response = await fetch(`${CONFIG.API_BASE_URL}/cases?limit=200`, {
+                    method: 'GET',
+                    headers: {
+                        'X-API-Key': CONFIG.API_KEY,
+                    },
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                state.cases = Array.isArray(data.cases) ? data.cases : [];
+                renderMarkers();
+            } catch (error) {
+                showError(`載入案件失敗：${error.message || '未知錯誤'}`);
+                state.cases = [];
+                renderMarkers();
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function toggleAllFilters() {
+            const allSelected =
+                state.selectedDistricts.size === DISTRICT_KEYS.length &&
+                state.selectedStatuses.size === STATUS_KEYS.length;
+
+            if (allSelected) {
+                state.selectedDistricts.clear();
+                state.selectedStatuses.clear();
+            } else {
+                state.selectedDistricts = new Set(DISTRICT_KEYS);
+                state.selectedStatuses = new Set(STATUS_KEYS);
+            }
+
+            renderFilterControls();
+            refreshToggleButtonText();
+            renderMarkers();
+        }
+
+        function bindEvents() {
+            reloadButton.addEventListener('click', fetchCases);
+            toggleAllButton.addEventListener('click', toggleAllFilters);
+            filterToggle.addEventListener('click', () => {
+                filterPanel.classList.toggle('collapsed');
+            });
+            detailClose.addEventListener('click', () => detailPanel.classList.remove('show'));
+            map.on('click', () => detailPanel.classList.remove('show'));
+        }
+
+        function startAutoRefresh() {
+            window.setInterval(fetchCases, CONFIG.REFRESH_INTERVAL_MS);
+        }
+
+        function init() {
+            renderFilterControls();
+            refreshToggleButtonText();
+            bindEvents();
+            fetchCases();
+            startAutoRefresh();
+        }
+
+        init();
+    </script>
+</body>
+</html>

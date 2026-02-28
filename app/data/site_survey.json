@@ -1,0 +1,97 @@
+[
+  {
+    "category_id": "upslope",
+    "category_name": "上邊坡",
+    "items": [
+      {
+        "item_id": "upslope_rockfall",
+        "item_name": "落石",
+        "description": "上邊坡是否有落石跡象或落石堆積"
+      },
+      {
+        "item_id": "upslope_collapse",
+        "item_name": "崩塌",
+        "description": "上邊坡是否有崩塌痕跡或潛在崩塌風險"
+      }
+    ]
+  },
+  {
+    "category_id": "downslope",
+    "category_name": "下邊坡",
+    "items": [
+      {
+        "item_id": "downslope_subgrade_gap",
+        "item_name": "路基缺口",
+        "description": "路基是否有缺口或流失現象"
+      },
+      {
+        "item_id": "downslope_settlement",
+        "item_name": "下陷",
+        "description": "路面或路基是否有下陷現象"
+      }
+    ]
+  },
+  {
+    "category_id": "structure",
+    "category_name": "結構物",
+    "items": [
+      {
+        "item_id": "structure_rebar_exposed",
+        "item_name": "鋼筋裸露",
+        "description": "結構物是否有鋼筋裸露現象"
+      },
+      {
+        "item_id": "structure_dangerous_tree",
+        "item_name": "危木",
+        "description": "是否有危險樹木（傾斜、枯死）"
+      },
+      {
+        "item_id": "structure_guardrail",
+        "item_name": "護欄",
+        "description": "護欄是否有損壞或缺失"
+      },
+      {
+        "item_id": "structure_pothole",
+        "item_name": "坑洞",
+        "description": "路面是否有坑洞"
+      },
+      {
+        "item_id": "structure_utility_pole",
+        "item_name": "電桿",
+        "description": "電桿是否有傾斜或損壞"
+      }
+    ]
+  },
+  {
+    "category_id": "bridge_river",
+    "category_name": "橋梁河道",
+    "items": [
+      {
+        "item_id": "bridge_river_adjacent",
+        "item_name": "鄰河",
+        "description": "道路是否鄰近河川"
+      },
+      {
+        "item_id": "bridge_river_meander_erosion",
+        "item_name": "曲流",
+        "description": "河道是否有曲流沖蝕情況"
+      }
+    ]
+  },
+  {
+    "category_id": "other",
+    "category_name": "其他",
+    "items": [
+      {
+        "item_id": "other_weather",
+        "item_name": "天氣",
+        "description": "當時天氣狀況描述"
+      },
+      {
+        "item_id": "other_snow",
+        "item_name": "降雪",
+        "description": "是否有降雪或結冰情況"
+      }
+    ]
+  }
+]
