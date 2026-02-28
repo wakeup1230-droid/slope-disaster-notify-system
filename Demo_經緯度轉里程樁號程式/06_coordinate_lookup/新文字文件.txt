@@ -1,0 +1,1 @@
+pyinstaller --name coordinate_lookup_v2 --onefile --add-data "(11307)14省道公路路線里程牌(指45)KMZ.csv;." --add-data "Ver1.0_logo.bmp;." coordinate_lookup.py 
