@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from urllib.parse import parse_qs
 
 from app.core.config import get_settings
@@ -17,7 +17,7 @@ from app.models.case import (
     ReviewStatus,
     SiteSurveyItem,
 )
-from app.models.line_state import AnnotationSubStep, FlowType, LineSession, RegistrationStep, ReportingStep
+from app.models.line_state import FlowType, GuidedPhotoSubStep, LineSession, RegistrationStep, ReportingStep
 from app.models.user import UserRole, UserStatus
 from app.services.case_manager import CaseManager
 from app.services.evidence_store import EvidenceStore
@@ -30,11 +30,21 @@ from app.services.user_store import UserStore
 
 logger = get_logger(__name__)
 
+HINT_CANCEL_BACK = "\n\n💡 輸入「取消」可取消流程，輸入「返回」可回上一步。"
+REQUIRED_PHOTO_TYPES = ["P1", "P2", "P3", "P4"]
+OPTIONAL_PHOTO_TYPES = ["P5", "P6", "P7", "P8", "P9", "P10"]
+
 
 class NotificationService(Protocol):
     async def notify_managers(self, message: str) -> None: ...
 
     async def notify_user(self, user_id: str, message: str) -> None: ...
+
+
+class GeologyServiceLike(Protocol):
+    def query_all(self, lon: float, lat: float): ...
+
+    def to_display_dict(self, result) -> dict[str, object]: ...
 
 
 class LineFlowController:
@@ -47,6 +57,7 @@ class LineFlowController:
         image_processor: ImageProcessor,
         lrs_service: LRSService,
         notification_service: NotificationService,
+        geology_service: object | None = None,
     ) -> None:
         self._sessions = line_session_store
         self._users = user_store
@@ -54,6 +65,7 @@ class LineFlowController:
         self._evidence = evidence_store
         self._images = image_processor
         self._lrs = lrs_service
+        self._geology = cast(GeologyServiceLike | None, geology_service)
         self._notify = notification_service
         self._settings = get_settings()
         self._districts = self._load_json("districts.json")
@@ -110,7 +122,11 @@ class LineFlowController:
             elif session.flow == FlowType.MANAGEMENT:
                 messages = await self._handle_management(session, source_key, user, incoming_text, payload)
             elif session.flow == FlowType.PHOTO_ANNOTATION:
-                messages = await self._handle_photo_annotation(session, source_key, incoming_text, payload)
+                session.flow = FlowType.REPORTING
+                session.step = ReportingStep.UPLOAD_PHOTOS.value
+                if not session.sub_step:
+                    session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+                messages = await self._handle_reporting(session, source_key, display_name, message_type, incoming_text, payload, image_content)
             else:
                 session.reset()
                 messages = [FlexBuilder.text_message("流程狀態異常，已重置。")]
@@ -173,7 +189,7 @@ class LineFlowController:
     def _start_registration(self, session: LineSession, display_name: str) -> list[dict]:
         session.start_flow(FlowType.REGISTRATION, RegistrationStep.ASK_REAL_NAME.value)
         session.store_data("display_name", display_name)
-        return [FlexBuilder.text_message("歡迎使用邊坡災害通報系統，請先完成註冊。\n請輸入您的真實姓名：")]
+        return [FlexBuilder.text_message("歡迎使用邊坡災害通報系統，請先完成註冊。\n請輸入您的真實姓名：" + HINT_CANCEL_BACK)]
 
     async def _handle_registration(
         self,
@@ -193,7 +209,7 @@ class LineFlowController:
             session.advance_step(RegistrationStep.ASK_ROLE.value)
             return [
                 FlexBuilder.quick_reply_message(
-                    "請選擇身分角色：",
+                    "請選擇身分角色：" + HINT_CANCEL_BACK,
                     [
                         {"type": "postback", "label": "使用者人員", "data": "action=reg_role&role=user", "displayText": "使用者人員"},
                         {"type": "postback", "label": "決策人員", "data": "action=reg_role&role=manager", "displayText": "決策人員"},
@@ -271,7 +287,7 @@ class LineFlowController:
                     FlexBuilder.text_message(f"已套用您的工務段：{district['name']}") ,
                     FlexBuilder.road_quick_reply(district["id"]),
                 ]
-        return [FlexBuilder.district_quick_reply()]
+        return [FlexBuilder.text_message("請選擇工務段：" + HINT_CANCEL_BACK), FlexBuilder.district_quick_reply()]
 
     async def _handle_reporting(
         self,
@@ -306,14 +322,48 @@ class LineFlowController:
                 return [FlexBuilder.road_quick_reply(session.get_data("district_id", ""))]
             session.store_data("road", payload.get("road", ""))
             session.advance_step(ReportingStep.INPUT_COORDINATES.value)
-            return [FlexBuilder.text_message("請分享定位或輸入座標（格式：lat,lon）。")]
+            return [FlexBuilder.text_message("請選擇輸入方式：\n1️⃣ 分享LINE定位\n2️⃣ 輸入座標（格式：25.033,121.567）\n3️⃣ 輸入里程樁號（格式：23K+500）" + HINT_CANCEL_BACK)]
 
         if step == ReportingStep.INPUT_COORDINATES.value:
+            # --- Branch A: try milepost input first (e.g. "23K+500", "10K") ---
+            road = session.get_data("road", "")
+            milepost_km = LRSService._parse_milepost_km(text or "")
+            if milepost_km is not None and road:
+                reverse_result = self._lrs.reverse_lookup(road, milepost_km)
+                if reverse_result:
+                    lat, lon = reverse_result
+                    display = LRSService._format_milepost(milepost_km)
+                    session.store_data("coordinates", {"lat": lat, "lon": lon})
+                    session.store_data(
+                        "milepost",
+                        {
+                            "road": road,
+                            "milepost_km": milepost_km,
+                            "milepost_display": display,
+                            "confidence": 1.0,
+                            "is_interpolated": False,
+                            "source": "manual_milepost",
+                        },
+                    )
+                    session.advance_step(ReportingStep.CONFIRM_MILEPOST.value)
+                    return [
+                        FlexBuilder.quick_reply_message(
+                            f"里程 {display} 對應座標：{lat:.6f}, {lon:.6f}\n是否確認？",
+                            [
+                                {"type": "postback", "label": "確認", "data": "action=confirm_milepost&ok=1", "displayText": "確認"},
+                                {"type": "postback", "label": "重新輸入", "data": "action=confirm_milepost&ok=0", "displayText": "重新輸入"},
+                            ],
+                        )
+                    ]
+                else:
+                    return [FlexBuilder.text_message(f"路線 {road} 查無里程 {text} 的資料，請確認後重新輸入。")]
+
+            # --- Branch B: coordinate input (lat,lon) or LINE location sharing ---
             coord = self._parse_coordinates(text)
             if message_type == "location" and not coord:
                 coord = self._parse_coordinates(text)
             if coord is None:
-                return [FlexBuilder.text_message("無法識別座標，請輸入格式：25.1234,121.5678")]
+                return [FlexBuilder.text_message("無法識別座標或里程，請輸入格式：\n座標：25.033,121.567\n里程：23K+500")]
 
             lat, lon = coord
             session.store_data("coordinates", {"lat": lat, "lon": lon})
@@ -372,7 +422,7 @@ class LineFlowController:
                 return [FlexBuilder.text_message("請選擇確認或重新輸入。")]
             if payload.get("ok") != "1":
                 session.advance_step(ReportingStep.INPUT_COORDINATES.value)
-                return [FlexBuilder.text_message("請重新輸入座標（lat,lon）。")]
+                return [FlexBuilder.text_message("請重新輸入座標（25.033,121.567）或里程樁號（23K+500）。")]
             session.advance_step(ReportingStep.SELECT_DAMAGE_MODE.value)
             return [FlexBuilder.damage_mode_carousel()]
 
@@ -409,86 +459,250 @@ class LineFlowController:
                 return [FlexBuilder.text_message("請至少選擇一項災害原因。"), FlexBuilder.damage_cause_quick_reply(session.get_data("damage_mode_id", ""))]
 
             session.advance_step(ReportingStep.INPUT_DESCRIPTION.value)
-            return [FlexBuilder.text_message("請描述災情內容（可包含影響範圍、危險情形、即時處置）。")]
+            return [FlexBuilder.text_message("請描述災情內容（自由填寫）：\n\n可包含：\n• 影響範圍（崩塌面積、佔用車道）\n• 危險情形（是否持續滑動、裂縫擴大）\n• 即時處置（交管、封路、警示）\n\n📝 範例：\n『邊坡滑動約寬20m高15m，土石佔用外側車道，目前交管單線通行。』" + HINT_CANCEL_BACK)]
 
         if step == ReportingStep.INPUT_DESCRIPTION.value:
             if not text:
                 return [FlexBuilder.text_message("請輸入災情描述。")]
             session.store_data("description", text)
             session.advance_step(ReportingStep.UPLOAD_PHOTOS.value)
-            return [FlexBuilder.text_message("請上傳照片（至少4張必要照片：全景照、災損近照、道路影響照、邊坡全景）。")]
+            session.store_data("guided_photo_step", 0)
+            session.store_data("guided_photo_type", "P1")
+            session.store_data("guided_phase", "required")
+            session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+            photo_def = self._resolve_photo_def("P1")
+            return [
+                FlexBuilder.guided_photo_prompt(
+                    photo_number=1,
+                    photo_type="P1",
+                    photo_name=photo_def.get("name", "P1"),
+                    photo_desc=self._photo_type_prompt("P1", photo_def.get("name", "P1")),
+                )
+            ]
 
         if step == ReportingStep.UPLOAD_PHOTOS.value:
-            if action == "start_annotation":
-                photos = session.get_data("uploaded_evidence", [])
-                if len(photos) < 1:
-                    return [FlexBuilder.text_message("尚無照片，請先上傳。")]
-                session.flow = FlowType.PHOTO_ANNOTATION
-                session.step = ReportingStep.ANNOTATE_PHOTOS.value
-                session.set_sub_step(AnnotationSubStep.SELECT_PHOTO.value)
-                return [self._photo_select_carousel(photos)]
+            if not session.get_data("guided_photo_type"):
+                session.store_data("guided_photo_step", 0)
+                session.store_data("guided_photo_type", REQUIRED_PHOTO_TYPES[0])
+                session.store_data("guided_phase", "required")
+                if not session.sub_step:
+                    session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
 
-            if message_type != "image" or image_content is None:
-                return [FlexBuilder.text_message("此步驟請上傳照片；至少4張後可開始標註。")]
-
-            draft_case = self._ensure_draft_case(session, source_key, display_name, user.real_name)
-            if draft_case is None:
-                return [FlexBuilder.text_message("建立草稿案件失敗，請稍後再試。")]
-
-            image_result = await self._images.process_image(image_content, f"line_{session.last_event_id or 'image'}.jpg")
-            if not image_result.is_valid:
-                return [FlexBuilder.text_message("照片格式不符或解析失敗，請重新上傳。")]
-
-            ev = self._evidence.store_evidence(
-                case_id=draft_case,
-                file_data=image_content,
-                original_filename=image_result.original_filename,
-                content_type=image_result.content_type,
-            )
-            if ev is None:
-                return [FlexBuilder.text_message("照片儲存失敗，請重試。")]
-
-            thumb_path = self._evidence.store_thumbnail(draft_case, image_result.sha256, image_result.thumbnail_data)
-            if thumb_path:
-                self._evidence.update_thumbnail_path(draft_case, ev.evidence_id, thumb_path)
-            self._evidence.update_exif(
-                draft_case,
-                ev.evidence_id,
-                gps_lat=image_result.exif.gps_lat,
-                gps_lon=image_result.exif.gps_lon,
-                datetime_original=image_result.exif.datetime_original,
-                camera=f"{image_result.exif.camera_make or ''} {image_result.exif.camera_model or ''}".strip() or None,
-                width=image_result.width,
-                height=image_result.height,
-            )
-
+            sub_step = session.sub_step or GuidedPhotoSubStep.AWAITING_UPLOAD.value
+            guided_phase = session.get_data("guided_phase", "required")
+            guided_step = int(session.get_data("guided_photo_step", 0))
+            guided_photo_type = session.get_data("guided_photo_type", REQUIRED_PHOTO_TYPES[0])
+            disaster_type = session.get_data("damage_category", "")
+            photo_def = self._resolve_photo_def(guided_photo_type, disaster_type)
+            photo_name = photo_def.get("name", guided_photo_type)
+            photo_desc = self._photo_type_prompt(guided_photo_type, photo_name)
             uploaded = session.get_data("uploaded_evidence", [])
-            thumb_url = f"{self._settings.app_base_url.rstrip('/')}/cases/{draft_case}/{thumb_path}" if thumb_path else ""
-            uploaded.append(
-                {
-                    "evidence_id": ev.evidence_id,
-                    "sha256": ev.sha256,
-                    "thumbnail_path": thumb_path or "",
-                    "thumbnail_url": thumb_url,
-                    "original_filename": ev.original_filename,
-                    "content_type": ev.content_type,
-                }
-            )
-            session.store_data("uploaded_evidence", uploaded)
-            session.store_data("photo_count", len(uploaded))
 
-            if len(uploaded) >= 4:
+            if sub_step == GuidedPhotoSubStep.AWAITING_UPLOAD.value:
+                if message_type != "image" or image_content is None:
+                    photo_number = len(uploaded) + 1
+                    return [FlexBuilder.guided_photo_prompt(photo_number, guided_photo_type, photo_name, photo_desc)]
+
+                draft_case = self._ensure_draft_case(session, source_key, display_name, user.real_name)
+                if draft_case is None:
+                    logger.error("[PHOTO_UPLOAD] Failed to create draft case for user=%s", source_key)
+                    return [FlexBuilder.text_message("建立草稿案件失敗，請稍後再試。")]
+                logger.info("[PHOTO_UPLOAD] Draft case=%s, user=%s", draft_case, source_key)
+                image_result = await self._images.process_image(image_content, f"line_{session.last_event_id or 'image'}.jpg")
+                if not image_result.is_valid:
+                    err_detail = '；'.join(image_result.validation_errors) if image_result.validation_errors else '未知錯誤'
+                    logger.warning("Image validation failed: %s", err_detail)
+                    return [FlexBuilder.text_message(f"照片驗證失敗：{err_detail}\n請重新上傳。")]
+
+                ev = self._evidence.store_evidence(
+                    case_id=draft_case,
+                    file_data=image_content,
+                    original_filename=image_result.original_filename,
+                    content_type=image_result.content_type,
+                )
+                if ev is None:
+                    logger.error("[PHOTO_UPLOAD] store_evidence returned None for case=%s", draft_case)
+                    return [FlexBuilder.text_message("照片儲存失敗，請重試。")]
+                logger.info(
+                    "[PHOTO_UPLOAD] Evidence stored: case=%s, evidence_id=%s, sha256=%s, content_type=%s",
+                    draft_case, ev.evidence_id, ev.sha256[:16], ev.content_type,
+                )
+                thumb_path = self._evidence.store_thumbnail(draft_case, image_result.sha256, image_result.thumbnail_data)
+                if thumb_path:
+                    self._evidence.update_thumbnail_path(draft_case, ev.evidence_id, thumb_path)
+                    logger.info("[PHOTO_UPLOAD] Thumbnail saved: %s", thumb_path)
+                else:
+                    logger.warning("[PHOTO_UPLOAD] Thumbnail generation returned no path for case=%s", draft_case)
+                self._evidence.update_exif(
+                    draft_case,
+                    ev.evidence_id,
+                    gps_lat=image_result.exif.gps_lat,
+                    gps_lon=image_result.exif.gps_lon,
+                    datetime_original=image_result.exif.datetime_original,
+                    camera=f"{image_result.exif.camera_make or ''} {image_result.exif.camera_model or ''}".strip() or None,
+                    width=image_result.width,
+                    height=image_result.height,
+                )
+                logger.info(
+                    "[PHOTO_UPLOAD] EXIF updated: evidence_id=%s, gps=(%s,%s), camera=%s %s",
+                    ev.evidence_id,
+                    image_result.exif.gps_lat, image_result.exif.gps_lon,
+                    image_result.exif.camera_make or '?', image_result.exif.camera_model or '?',
+                )
+
+                thumb_url = f"{self._settings.app_base_url.rstrip('/')}/cases/{draft_case}/{thumb_path}" if thumb_path else ""
+                uploaded.append(
+                    {
+                        "evidence_id": ev.evidence_id,
+                        "sha256": ev.sha256,
+                        "thumbnail_path": thumb_path or "",
+                        "thumbnail_url": thumb_url,
+                        "original_filename": ev.original_filename,
+                        "content_type": ev.content_type,
+                    }
+                )
+                session.store_data("uploaded_evidence", uploaded)
+                session.store_data("photo_count", len(uploaded))
+                session.current_photo_index = len(uploaded) - 1
+
+                tag_def = self._resolve_photo_def(guided_photo_type, disaster_type)
+                if not tag_def:
+                    return [FlexBuilder.text_message("照片類型不存在，請重新操作。")]
+                session.annotation_accumulator = {
+                    "photo_type": guided_photo_type,
+                    "photo_type_name": tag_def.get("name", guided_photo_type),
+                    "tag_index": 0,
+                    "selected_tags": [],
+                    "custom_note": "",
+                }
+                session.pending_tags = []
+                session.set_sub_step(GuidedPhotoSubStep.PHOTO_VISIBLE_TAGS.value)
+                return [self._current_tag_category_message(session)]
+
+            if sub_step == GuidedPhotoSubStep.PHOTO_VISIBLE_TAGS.value:
+                if action in {"tag", "toggle_tag", "select_tag", "select_exclusion"}:
+                    cat_id = payload.get("cat", "")
+                    tag_id = payload.get("tag", "")
+                    if action == "select_tag":
+                        self._toggle_tag(session, cat_id, tag_id, force_set=True)
+                    else:
+                        self._toggle_tag(session, cat_id, tag_id, is_exclusion=(action == "select_exclusion"))
+
+                    categories = self._current_tag_categories(session)
+                    tag_index = int(session.annotation_accumulator.get("tag_index", 0))
+                    if tag_index < len(categories):
+                        category = categories[tag_index]
+                        option_count = len(category.get("tags", [])) + len(category.get("exclusion_tags", []))
+                        if not category.get("multi_select", True) and option_count <= 7 and action in {"select_tag", "select_exclusion"}:
+                            session.annotation_accumulator["tag_index"] = tag_index + 1
+                            if tag_index + 1 < len(categories):
+                                return [self._current_tag_category_message(session)]
+                            session.set_sub_step(GuidedPhotoSubStep.CUSTOM_INPUT.value)
+                            return [
+                                FlexBuilder.quick_reply_message(
+                                    "如有其他描述，請直接輸入文字，或按「跳過」。",
+                                    [{"type": "postback", "label": "跳過", "data": "action=skip_custom_note", "displayText": "跳過"}],
+                                )
+                            ]
+                    return [self._current_tag_category_message(session)]
+
+                if action not in {"finish_tag_category", "confirm_multi"}:
+                    return [self._current_tag_category_message(session)]
+
+                tag_index = int(session.annotation_accumulator.get("tag_index", 0)) + 1
+                session.annotation_accumulator["tag_index"] = tag_index
+                categories = self._current_tag_categories(session)
+                if tag_index < len(categories):
+                    return [self._current_tag_category_message(session)]
+
+                session.set_sub_step(GuidedPhotoSubStep.CUSTOM_INPUT.value)
                 return [
                     FlexBuilder.quick_reply_message(
-                        f"已上傳 {len(uploaded)} 張照片。可繼續上傳或開始標註。",
-                        [
-                            {"type": "postback", "label": "開始標註", "data": "action=start_annotation", "displayText": "開始標註"},
-                            {"type": "postback", "label": "繼續上傳", "data": "action=continue_upload", "displayText": "繼續上傳"},
-                        ],
+                        "如有其他描述，請直接輸入文字，或按「跳過」。",
+                        [{"type": "postback", "label": "跳過", "data": "action=skip_custom_note", "displayText": "跳過"}],
                     )
                 ]
 
-            return [FlexBuilder.text_message(f"已上傳 {len(uploaded)} 張，至少還需要 {4 - len(uploaded)} 張必要照片。")]
+            if sub_step == GuidedPhotoSubStep.CUSTOM_INPUT.value:
+                if action == "skip_custom_note":
+                    session.annotation_accumulator["custom_note"] = ""
+                else:
+                    session.annotation_accumulator["custom_note"] = text
+                session.set_sub_step(GuidedPhotoSubStep.CONFIRM_ANNOTATION.value)
+                summary = self._build_annotation_summary(session)
+                return [
+                    FlexBuilder.annotation_summary_flex(session.current_photo_index, summary),
+                    FlexBuilder.confirm_message("確認此張照片標註？", "action=confirm_annotation_yes", "action=confirm_annotation_no"),
+                ]
+
+            if sub_step == GuidedPhotoSubStep.CONFIRM_ANNOTATION.value:
+                if action == "confirm_annotation_no":
+                    session.annotation_accumulator["tag_index"] = 0
+                    session.annotation_accumulator["selected_tags"] = []
+                    session.annotation_accumulator["custom_note"] = ""
+                    session.set_sub_step(GuidedPhotoSubStep.PHOTO_VISIBLE_TAGS.value)
+                    return [self._current_tag_category_message(session)]
+                if action != "confirm_annotation_yes":
+                    return [FlexBuilder.text_message("請確認是否套用此標註。")]
+
+                idx = session.current_photo_index
+                annotations = session.get_data("photo_annotations", {})
+                summary = self._build_annotation_summary(session)
+                annotations[str(idx)] = summary
+                session.store_data("photo_annotations", annotations)
+                self._persist_annotation(session, idx, summary)
+
+                if guided_phase == "required":
+                    next_step = guided_step + 1
+                    session.store_data("guided_photo_step", next_step)
+                    if next_step < len(REQUIRED_PHOTO_TYPES):
+                        next_photo_type = REQUIRED_PHOTO_TYPES[next_step]
+                        next_def = self._resolve_photo_def(next_photo_type, disaster_type)
+                        session.store_data("guided_phase", "required")
+                        session.store_data("guided_photo_type", next_photo_type)
+                        session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+                        return [
+                            FlexBuilder.guided_photo_prompt(
+                                photo_number=next_step + 1,
+                                photo_type=next_photo_type,
+                                photo_name=next_def.get("name", next_photo_type),
+                                photo_desc=self._photo_type_prompt(next_photo_type, next_def.get("name", next_photo_type)),
+                            )
+                        ]
+
+                session.set_sub_step(GuidedPhotoSubStep.CHOOSE_OPTIONAL.value)
+                uploaded_types = [item.get("photo_type", "") for item in annotations.values() if item.get("photo_type")]
+                return [FlexBuilder.optional_photo_chooser(uploaded_types)]
+
+            if sub_step == GuidedPhotoSubStep.CHOOSE_OPTIONAL.value:
+                annotations = session.get_data("photo_annotations", {})
+                uploaded_types = [item.get("photo_type", "") for item in annotations.values() if item.get("photo_type")]
+                if action == "choose_optional_type":
+                    selected_photo_type = payload.get("photo_type", "")
+                    if selected_photo_type not in OPTIONAL_PHOTO_TYPES:
+                        return [FlexBuilder.optional_photo_chooser(uploaded_types)]
+                    if selected_photo_type in uploaded_types:
+                        return [FlexBuilder.optional_photo_chooser(uploaded_types)]
+                    selected_def = self._resolve_photo_def(selected_photo_type, disaster_type)
+                    session.store_data("guided_photo_step", OPTIONAL_PHOTO_TYPES.index(selected_photo_type))
+                    session.store_data("guided_photo_type", selected_photo_type)
+                    session.store_data("guided_phase", "optional")
+                    session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+                    return [
+                        FlexBuilder.guided_photo_prompt(
+                            photo_number=len(uploaded) + 1,
+                            photo_type=selected_photo_type,
+                            photo_name=selected_def.get("name", selected_photo_type),
+                            photo_desc=self._photo_type_prompt(selected_photo_type, selected_def.get("name", selected_photo_type)),
+                        )
+                    ]
+                if action == "finish_photos":
+                    session.advance_step(ReportingStep.SITE_SURVEY.value)
+                    return [self._site_survey_quick_reply(session.get_data("site_survey_selected", []))]
+                return [FlexBuilder.optional_photo_chooser(uploaded_types)]
+
+            session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+            return [FlexBuilder.guided_photo_prompt(len(uploaded) + 1, guided_photo_type, photo_name, photo_desc)]
 
         if step == ReportingStep.SITE_SURVEY.value:
             selected = session.get_data("site_survey_selected", [])
@@ -503,7 +717,7 @@ class LineFlowController:
                 session.advance_step(ReportingStep.ESTIMATED_COST.value)
                 return [
                     FlexBuilder.quick_reply_message(
-                        "初估經費（萬元）？可輸入數字或按跳過。",
+                        "初估經費（萬元）？可輸入數字或按跳過。" + HINT_CANCEL_BACK,
                         [{"type": "postback", "label": "跳過", "data": "action=skip_cost", "displayText": "跳過"}],
                     )
                 ]
@@ -555,10 +769,23 @@ class LineFlowController:
             return [FlexBuilder.text_message(f"案件已成功送出，案件編號：{case.case_id}")]
 
         if step == ReportingStep.ANNOTATE_PHOTOS.value:
-            session.flow = FlowType.PHOTO_ANNOTATION
-            session.set_sub_step(AnnotationSubStep.SELECT_PHOTO.value)
-            photos = session.get_data("uploaded_evidence", [])
-            return [self._photo_select_carousel(photos)]
+            session.step = ReportingStep.UPLOAD_PHOTOS.value
+            if not session.get_data("guided_photo_type"):
+                session.store_data("guided_photo_step", 0)
+                session.store_data("guided_photo_type", REQUIRED_PHOTO_TYPES[0])
+                session.store_data("guided_phase", "required")
+            session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+            photo_type = session.get_data("guided_photo_type", REQUIRED_PHOTO_TYPES[0])
+            disaster_type = session.get_data("damage_category", "")
+            photo_def = self._resolve_photo_def(photo_type, disaster_type)
+            return [
+                FlexBuilder.guided_photo_prompt(
+                    photo_number=len(session.get_data("uploaded_evidence", [])) + 1,
+                    photo_type=photo_type,
+                    photo_name=photo_def.get("name", photo_type),
+                    photo_desc=self._photo_type_prompt(photo_type, photo_def.get("name", photo_type)),
+                )
+            ]
 
         return [FlexBuilder.text_message("通報流程狀態異常，請重新開始。")]
 
@@ -566,123 +793,18 @@ class LineFlowController:
         self,
         session: LineSession,
         _source_key: str,
-        text: str,
-        payload: dict[str, str],
+        _text: str,
+        _payload: dict[str, str],
     ) -> list[dict]:
-        sub_step = session.sub_step or AnnotationSubStep.SELECT_PHOTO.value
-        action = payload.get("action", "")
-        photos = session.get_data("uploaded_evidence", [])
-        if not photos:
-            session.flow = FlowType.REPORTING
-            session.advance_step(ReportingStep.UPLOAD_PHOTOS.value)
-            return [FlexBuilder.text_message("尚未上傳照片，請先上傳。")]
-
-        if sub_step == AnnotationSubStep.SELECT_PHOTO.value:
-            if action == "finish_annotations":
-                session.flow = FlowType.REPORTING
-                session.advance_step(ReportingStep.SITE_SURVEY.value)
-                return [self._site_survey_quick_reply(session.get_data("site_survey_selected", []))]
-            if action != "select_photo":
-                return [self._photo_select_carousel(photos)]
-            idx = int(payload.get("index", "0"))
-            if idx < 0 or idx >= len(photos):
-                return [FlexBuilder.text_message("照片索引不存在，請重新選擇。")]
-            session.current_photo_index = idx
-            session.set_sub_step(AnnotationSubStep.SELECT_TYPE.value)
-            return [FlexBuilder.photo_type_quick_reply()]
-
-        if sub_step == AnnotationSubStep.SELECT_TYPE.value:
-            if action != "select_photo_type":
-                return [FlexBuilder.photo_type_quick_reply()]
-            photo_type = payload.get("photo_type", "")
-            tag_def = self._photo_tags.get(photo_type)
-            if not tag_def:
-                return [FlexBuilder.text_message("照片類型不存在，請重新選擇。")]
-            session.annotation_accumulator = {
-                "photo_type": photo_type,
-                "photo_type_name": tag_def.get("name", photo_type),
-                "tag_index": 0,
-                "selected_tags": [],
-                "custom_note": "",
-            }
-            session.pending_tags = []
-            session.set_sub_step(AnnotationSubStep.SELECT_TAGS.value)
-            return [self._current_tag_category_message(session)]
-
-        if sub_step == AnnotationSubStep.SELECT_TAGS.value:
-            if action == "tag":
-                cat_id = payload.get("cat", "")
-                tag_id = payload.get("tag", "")
-                self._toggle_tag(session, cat_id, tag_id)
-                return [self._current_tag_category_message(session)]
-
-            if action != "finish_tag_category":
-                return [self._current_tag_category_message(session)]
-
-            tag_index = int(session.annotation_accumulator.get("tag_index", 0)) + 1
-            session.annotation_accumulator["tag_index"] = tag_index
-            categories = self._current_tag_categories(session)
-            if tag_index < len(categories):
-                return [self._current_tag_category_message(session)]
-
-            session.set_sub_step(AnnotationSubStep.CUSTOM_INPUT.value)
-            return [
-                FlexBuilder.quick_reply_message(
-                    "如有其他描述，請直接輸入文字，或按「跳過」。",
-                    [{"type": "postback", "label": "跳過", "data": "action=skip_custom_note", "displayText": "跳過"}],
-                )
-            ]
-
-        if sub_step == AnnotationSubStep.CUSTOM_INPUT.value:
-            if action == "skip_custom_note":
-                session.annotation_accumulator["custom_note"] = ""
-            else:
-                session.annotation_accumulator["custom_note"] = text
-            session.set_sub_step(AnnotationSubStep.CONFIRM_ANNOTATION.value)
-            summary = self._build_annotation_summary(session)
-            return [
-                FlexBuilder.annotation_summary_flex(session.current_photo_index, summary),
-                FlexBuilder.confirm_message("確認此張照片標註？", "action=confirm_annotation_yes", "action=confirm_annotation_no"),
-            ]
-
-        if sub_step == AnnotationSubStep.CONFIRM_ANNOTATION.value:
-            if action == "confirm_annotation_no":
-                session.set_sub_step(AnnotationSubStep.SELECT_TYPE.value)
-                return [FlexBuilder.photo_type_quick_reply()]
-            if action != "confirm_annotation_yes":
-                return [FlexBuilder.text_message("請確認是否套用此標註。")]
-
-            idx = session.current_photo_index
-            annotations = session.get_data("photo_annotations", {})
-            summary = self._build_annotation_summary(session)
-            annotations[str(idx)] = summary
-            session.store_data("photo_annotations", annotations)
-            self._persist_annotation(session, idx, summary)
-
-            session.set_sub_step(AnnotationSubStep.NEXT_PHOTO.value)
-            return [
-                FlexBuilder.quick_reply_message(
-                    "此照片標註完成。",
-                    [
-                        {"type": "postback", "label": "下一張", "data": "action=next_photo", "displayText": "下一張"},
-                        {"type": "postback", "label": "完成標註", "data": "action=finish_annotations", "displayText": "完成標註"},
-                    ],
-                )
-            ]
-
-        if sub_step == AnnotationSubStep.NEXT_PHOTO.value:
-            if action == "finish_annotations":
-                session.flow = FlowType.REPORTING
-                session.advance_step(ReportingStep.SITE_SURVEY.value)
-                return [self._site_survey_quick_reply(session.get_data("site_survey_selected", []))]
-
-            if action != "next_photo":
-                return [FlexBuilder.text_message("請選擇下一張或完成標註。")]
-
-            session.set_sub_step(AnnotationSubStep.SELECT_PHOTO.value)
-            return [self._photo_select_carousel(photos)]
-
-        return [FlexBuilder.text_message("照片標註流程異常，請重新選擇。")]
+        session.flow = FlowType.REPORTING
+        session.step = ReportingStep.UPLOAD_PHOTOS.value
+        if not session.get_data("guided_photo_type"):
+            session.store_data("guided_photo_step", 0)
+            session.store_data("guided_photo_type", REQUIRED_PHOTO_TYPES[0])
+            session.store_data("guided_phase", "required")
+        if not session.sub_step:
+            session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+        return [FlexBuilder.text_message("已切換為逐張上傳標註模式，請在照片上傳步驟繼續。")]
 
     async def _handle_query(
         self,
@@ -800,6 +922,55 @@ class LineFlowController:
 
     def _handle_back(self, session: LineSession) -> list[dict]:
         if session.flow == FlowType.REPORTING:
+            if session.step == ReportingStep.UPLOAD_PHOTOS.value:
+                guided_photo_type = session.get_data("guided_photo_type", REQUIRED_PHOTO_TYPES[0])
+                disaster_type = session.get_data("damage_category", "")
+                photo_def = self._resolve_photo_def(guided_photo_type, disaster_type)
+                photo_name = photo_def.get("name", guided_photo_type)
+                photo_desc = self._photo_type_prompt(guided_photo_type, photo_name)
+                guided_step = int(session.get_data("guided_photo_step", 0))
+                sub_step = session.sub_step or GuidedPhotoSubStep.AWAITING_UPLOAD.value
+
+                if sub_step == GuidedPhotoSubStep.PHOTO_VISIBLE_TAGS.value:
+                    session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+                    return [FlexBuilder.guided_photo_prompt(len(session.get_data("uploaded_evidence", [])), guided_photo_type, photo_name, photo_desc)]
+
+                if sub_step == GuidedPhotoSubStep.CUSTOM_INPUT.value:
+                    categories = self._current_tag_categories(session)
+                    if categories:
+                        session.annotation_accumulator["tag_index"] = len(categories) - 1
+                    session.set_sub_step(GuidedPhotoSubStep.PHOTO_VISIBLE_TAGS.value)
+                    return [self._current_tag_category_message(session)]
+
+                if sub_step == GuidedPhotoSubStep.CONFIRM_ANNOTATION.value:
+                    session.set_sub_step(GuidedPhotoSubStep.CUSTOM_INPUT.value)
+                    return [
+                        FlexBuilder.quick_reply_message(
+                            "如有其他描述，請直接輸入文字，或按「跳過」。",
+                            [{"type": "postback", "label": "跳過", "data": "action=skip_custom_note", "displayText": "跳過"}],
+                        )
+                    ]
+
+                if sub_step == GuidedPhotoSubStep.CHOOSE_OPTIONAL.value:
+                    session.store_data("guided_photo_step", 3)
+                    session.store_data("guided_photo_type", "P4")
+                    session.store_data("guided_phase", "required")
+                    session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+                    p4_def = self._resolve_photo_def("P4", disaster_type)
+                    return [
+                        FlexBuilder.guided_photo_prompt(
+                            photo_number=4,
+                            photo_type="P4",
+                            photo_name=p4_def.get("name", "P4"),
+                            photo_desc=self._photo_type_prompt("P4", p4_def.get("name", "P4")),
+                        )
+                    ]
+
+                if sub_step == GuidedPhotoSubStep.AWAITING_UPLOAD.value and guided_step > 0:
+                    return [FlexBuilder.guided_photo_prompt(len(session.get_data("uploaded_evidence", [])) + 1, guided_photo_type, photo_name, photo_desc)]
+
+                return [FlexBuilder.guided_photo_prompt(len(session.get_data("uploaded_evidence", [])) + 1, guided_photo_type, photo_name, photo_desc)]
+
             order = [
                 ReportingStep.SELECT_DISTRICT.value,
                 ReportingStep.SELECT_ROAD.value,
@@ -829,19 +1000,52 @@ class LineFlowController:
                 return [FlexBuilder.text_message("已返回上一步。")]
 
         if session.flow == FlowType.PHOTO_ANNOTATION:
-            sub_order = [
-                AnnotationSubStep.SELECT_PHOTO.value,
-                AnnotationSubStep.SELECT_TYPE.value,
-                AnnotationSubStep.SELECT_TAGS.value,
-                AnnotationSubStep.CUSTOM_INPUT.value,
-                AnnotationSubStep.CONFIRM_ANNOTATION.value,
-                AnnotationSubStep.NEXT_PHOTO.value,
+            session.flow = FlowType.REPORTING
+            session.step = ReportingStep.UPLOAD_PHOTOS.value
+            if not session.get_data("guided_photo_type"):
+                session.store_data("guided_photo_step", 0)
+                session.store_data("guided_photo_type", REQUIRED_PHOTO_TYPES[0])
+                session.store_data("guided_phase", "required")
+            session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+            guided_photo_type = session.get_data("guided_photo_type", REQUIRED_PHOTO_TYPES[0])
+            disaster_type = session.get_data("damage_category", "")
+            photo_def = self._resolve_photo_def(guided_photo_type, disaster_type)
+            return [
+                FlexBuilder.guided_photo_prompt(
+                    photo_number=len(session.get_data("uploaded_evidence", [])) + 1,
+                    photo_type=guided_photo_type,
+                    photo_name=photo_def.get("name", guided_photo_type),
+                    photo_desc=self._photo_type_prompt(guided_photo_type, photo_def.get("name", guided_photo_type)),
+                )
             ]
-            if session.sub_step in sub_order and sub_order.index(session.sub_step) > 0:
-                session.sub_step = sub_order[sub_order.index(session.sub_step) - 1]
-                return [FlexBuilder.text_message("已返回上一步。")]
 
         return [FlexBuilder.text_message("目前無法再返回，請繼續或輸入取消。")]
+
+    def _resolve_photo_def(self, photo_type: str, disaster_type: str = "") -> dict:
+        """Resolve photo tag definition from hierarchical photo_tags.json."""
+        data = self._photo_tags
+        common = data.get("common", {})
+        if photo_type in common:
+            return common[photo_type]
+        if disaster_type:
+            type_specific = data.get(disaster_type, {})
+            if photo_type in type_specific:
+                return type_specific[photo_type]
+        for key in ["revetment_retaining", "road_slope", "bridge"]:
+            section = data.get(key, {})
+            if photo_type in section:
+                return section[photo_type]
+        return {}
+
+    def _photo_type_prompt(self, photo_type: str, photo_name: str) -> str:
+        """Generate contextual prompt for photo upload based on type."""
+        prompts = {
+            "P1": "記錄災點整體環境與現場概況。",
+            "P2": "拍攝災損構造物近照，清楚呈現損壞細節。",
+            "P3": "記錄道路路面狀況與影響範圍。",
+            "P4": "拍攝邊坡整體型態與植被狀況。",
+        }
+        return prompts.get(photo_type, f"請上傳 {photo_name} 照片。")
 
     def _site_survey_quick_reply(self, selected: list[str]) -> dict:
         items = []
@@ -925,8 +1129,9 @@ class LineFlowController:
 
     def _current_tag_categories(self, session: LineSession) -> list[dict]:
         photo_type = session.annotation_accumulator.get("photo_type", "")
-        definition = self._photo_tags.get(photo_type, {})
-        return definition.get("tag_categories", [])
+        disaster_type = session.get_data("damage_category", "")
+        definition = self._resolve_photo_def(photo_type, disaster_type)
+        return definition.get("photo_tags", [])
 
     def _current_tag_category_message(self, session: LineSession) -> dict:
         categories = self._current_tag_categories(session)
@@ -934,26 +1139,82 @@ class LineFlowController:
         if idx >= len(categories):
             return FlexBuilder.text_message("標籤類別已完成。")
         category = categories[idx]
+        photo_type = session.annotation_accumulator.get("photo_type", "")
+        category_id = category.get("category_id", "")
+        category_name = category.get("category_name", "標籤")
+        tags = category.get("tags", [])
+        exclusion_tags = category.get("exclusion_tags", [])
+        source = category.get("source", "photo")
         selected = [tag["tag_id"] for tag in session.annotation_accumulator.get("selected_tags", []) if tag.get("category") == category.get("category_id")]
-        return FlexBuilder.tag_category_buttons(session.current_photo_index, category, selected)
+        option_count = len(tags) + len(exclusion_tags)
 
-    def _toggle_tag(self, session: LineSession, category_id: str, tag_id: str) -> None:
+        if not category.get("multi_select", True) and option_count <= 7:
+            return FlexBuilder.tag_single_select_quick_reply(
+                category_name=category_name,
+                tags=tags,
+                photo_set_type=photo_type,
+                category_id=category_id,
+                current_index=idx + 1,
+                total_count=len(categories),
+                source=source,
+                exclusion_tags=exclusion_tags,
+            )
+
+        return FlexBuilder.tag_multi_select_flex(
+            category_name=category_name,
+            tags=tags,
+            exclusion_tags=exclusion_tags,
+            photo_set_type=photo_type,
+            category_id=category_id,
+            selected_tags=selected,
+            current_index=idx + 1,
+            total_count=len(categories),
+            source=source,
+        )
+
+    def _toggle_tag(self, session: LineSession, category_id: str, tag_id: str, is_exclusion: bool = False, force_set: bool = False) -> None:
         categories = {c["category_id"]: c for c in self._current_tag_categories(session)}
         category = categories.get(category_id)
         if not category:
             return
+        exclusion_tags = category.get("exclusion_tags", [])
         tag_info = next((t for t in category.get("tags", []) if t["id"] == tag_id), None)
+        if tag_info is None:
+            tag_info = next((t for t in exclusion_tags if t["id"] == tag_id), None)
+            if tag_info is None:
+                return
+            is_exclusion = True
         if not tag_info:
             return
 
         selected = session.annotation_accumulator.get("selected_tags", [])
         exists = next((item for item in selected if item["category"] == category_id and item["tag_id"] == tag_id), None)
+        exclusion_ids = {item.get("id", "") for item in exclusion_tags}
+
+        if force_set:
+            selected = [item for item in selected if item["category"] != category_id]
+            selected.append(
+                {
+                    "category": category_id,
+                    "category_name": category.get("category_name", ""),
+                    "tag_id": tag_id,
+                    "label": tag_info.get("label", ""),
+                }
+            )
+            session.annotation_accumulator["selected_tags"] = selected
+            return
 
         if exists:
             selected.remove(exists)
         else:
-            if not category.get("multi_select", True):
+            if is_exclusion or not category.get("multi_select", True):
                 selected = [item for item in selected if item["category"] != category_id]
+            else:
+                selected = [
+                    item
+                    for item in selected
+                    if not (item["category"] == category_id and item["tag_id"] in exclusion_ids)
+                ]
             selected.append(
                 {
                     "category": category_id,
@@ -1040,6 +1301,21 @@ class LineFlowController:
             )
             case.coordinate_candidates = [candidate]
             case.primary_coordinate = candidate
+
+        # Auto-query geology info (silent, no user display)
+        if self._geology is not None and case.primary_coordinate:
+            try:
+                result = self._geology.query_all(
+                    lon=case.primary_coordinate.lon,
+                    lat=case.primary_coordinate.lat,
+                )
+                case.geology_info = self._geology.to_display_dict(result)
+                logger.info(
+                    "Geology auto-queried for case %s: %s",
+                    case.case_id, case.geology_info.get("地層名稱", "N/A"),
+                )
+            except Exception:
+                logger.warning("Geology query failed for case %s", case.case_id, exc_info=True)
 
         if milepost:
             case.milepost = MilepostInfo(

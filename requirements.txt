@@ -9,6 +9,7 @@ line-bot-sdk>=3.5.0
 
 # === Image Processing ===
 Pillow>=10.0.0
+pillow-heif>=1.0.0
 
 # === Geospatial ===
 pyproj>=3.6.0

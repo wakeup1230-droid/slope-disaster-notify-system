@@ -11,6 +11,8 @@ SUCCESS_COLOR = "#1DB446"
 URGENT_COLOR = "#FF6B6B"
 INFO_COLOR = "#4A90D9"
 NEUTRAL_COLOR = "#888888"
+JUDGMENT_COLOR = "#E8A317"
+EXCLUSION_COLOR = "#CCCCCC"
 
 
 def _data_dir() -> Path:
@@ -40,6 +42,26 @@ def _site_survey() -> list[dict]:
     with open(_data_dir() / "site_survey.json", "r", encoding="utf-8") as file:
         return json.load(file)
 
+
+def _resolve_photo_tags(photo_type: str, disaster_type: str = "") -> dict | None:
+    """Resolve photo tag definition from hierarchical photo_tags.json.
+
+    P1, P3 are in 'common'. P2, P4 are disaster-type-specific.
+    Falls back to common if disaster_type not found.
+    """
+    data = _photo_tags()
+    common = data.get("common", {})
+    if photo_type in common:
+        return common[photo_type]
+    if disaster_type:
+        type_specific = data.get(disaster_type, {})
+        if photo_type in type_specific:
+            return type_specific[photo_type]
+    for key in ["revetment_retaining", "road_slope", "bridge"]:
+        section = data.get(key, {})
+        if photo_type in section:
+            return section[photo_type]
+    return None
 
 def _postback_data(action: str, **kwargs: str | int | float) -> str:
     payload = {"action": action}
@@ -217,6 +239,40 @@ class FlexBuilder:
                 }
             )
         return FlexBuilder.quick_reply_message("請選擇照片類型：", items)
+
+    @staticmethod
+    def guided_photo_prompt(photo_number: int, photo_type: str, photo_name: str, photo_desc: str) -> dict:
+        """Prompt for uploading a specific photo type in the guided flow."""
+        hint = "\n\n💡 輸入「取消」可取消流程，輸入「返回」可回上一步。"
+        display_name = photo_name or photo_type
+        return FlexBuilder.text_message(f"📸 請上傳第{photo_number}張照片：{display_name}\n{photo_desc}{hint}")
+
+    @staticmethod
+    def optional_photo_chooser(already_uploaded_types: list[str]) -> dict:
+        """Show buttons for optional photo types P5-P10, plus a finish button."""
+        photo_tags = _photo_tags()
+        items = []
+        for photo_type in ["P5", "P6", "P7", "P8", "P9", "P10"]:
+            if photo_type in already_uploaded_types:
+                continue
+            info = photo_tags.get(photo_type, {})
+            items.append(
+                {
+                    "type": "postback",
+                    "label": f"{photo_type} {info.get('name', '')}"[:20],
+                    "data": _postback_data("choose_optional_type", photo_type=photo_type),
+                    "displayText": info.get("name", photo_type),
+                }
+            )
+        items.append(
+            {
+                "type": "postback",
+                "label": "完成照片上傳",
+                "data": _postback_data("finish_photos"),
+                "displayText": "完成照片上傳",
+            }
+        )
+        return FlexBuilder.quick_reply_message("✅ 4張必要照片已完成！\n可選擇上傳其他照片，或直接完成：", items)
 
     @staticmethod
     def tag_category_buttons(photo_index: int, category: dict, selected_tags: list[str]) -> dict:
@@ -619,9 +675,504 @@ class FlexBuilder:
         }
 
     @staticmethod
-    def get_photo_tag_definition(photo_type: str) -> dict | None:
-        return _photo_tags().get(photo_type)
+    def get_photo_tag_definition(photo_type: str, disaster_type: str = "") -> dict | None:
+        return _resolve_photo_tags(photo_type, disaster_type)
 
     @staticmethod
     def get_survey_definition() -> list[dict]:
         return _site_survey()
+
+    # ── Photo-set annotation UI methods ──────────────────────────────
+
+    @staticmethod
+    def photo_set_entry_card(
+        photo_set_type: str,
+        photo_set_name: str,
+        disaster_type: str,
+        photo_number: int,
+        is_required: bool,
+        max_photos: int,
+    ) -> dict:
+        """Entry card for starting annotation on a photo set."""
+        header_color = INFO_COLOR if is_required else NEUTRAL_COLOR
+        req_label = "必要" if is_required else "選填"
+        return {
+            "type": "flex",
+            "altText": f"📸 {photo_set_name}",
+            "contents": {
+                "type": "bubble",
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "backgroundColor": header_color,
+                    "contents": [
+                        {"type": "text", "text": f"📸 {photo_set_name}", "weight": "bold", "color": "#FFFFFF", "size": "lg"},
+                    ],
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": f"第{photo_number}張照片 ({req_label})", "size": "sm", "color": NEUTRAL_COLOR},
+                        {"type": "text", "text": f"類型：{photo_set_type} {photo_set_name}", "size": "sm", "margin": "md", "wrap": True},
+                        {"type": "text", "text": f"最多可拍 {max_photos} 張", "size": "xs", "color": NEUTRAL_COLOR, "margin": "sm"},
+                    ],
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "color": SUCCESS_COLOR,
+                            "action": {
+                                "type": "postback",
+                                "label": "開始標註",
+                                "data": _postback_data("start_annotation", set=photo_set_type),
+                            },
+                        }
+                    ],
+                },
+            },
+        }
+
+    @staticmethod
+    def tag_single_select_quick_reply(
+        category_name: str,
+        tags: list[dict],
+        photo_set_type: str,
+        category_id: str,
+        current_index: int,
+        total_count: int,
+        source: str = "photo",
+        exclusion_tags: list[dict] | None = None,
+    ) -> dict:
+        """Quick Reply for single-select categories with ≤7 options."""
+        emoji = "📷" if source == "photo" else "🧠"
+        prompt = f"{emoji} ({current_index}/{total_count}) {category_name}"
+        items: list[dict] = []
+        for tag in tags[:11]:
+            items.append(
+                {
+                    "type": "postback",
+                    "label": tag.get("label", "")[:20],
+                    "data": _postback_data("select_tag", set=photo_set_type, cat=category_id, tag=tag.get("id", "")),
+                    "displayText": tag.get("label", ""),
+                }
+            )
+        if exclusion_tags:
+            for etag in exclusion_tags[:2]:
+                items.append(
+                    {
+                        "type": "postback",
+                        "label": f"⊘{etag.get('label', '')}"[:20],
+                        "data": _postback_data("select_exclusion", set=photo_set_type, cat=category_id, tag=etag.get("id", "")),
+                        "displayText": etag.get("label", ""),
+                    }
+                )
+        return FlexBuilder.quick_reply_message(prompt, items)
+
+    @staticmethod
+    def tag_multi_select_flex(
+        category_name: str,
+        tags: list[dict],
+        exclusion_tags: list[dict],
+        photo_set_type: str,
+        category_id: str,
+        selected_tags: list[str],
+        current_index: int,
+        total_count: int,
+        source: str = "photo",
+    ) -> dict:
+        """Flex Bubble for multi-select or 8+ option categories with dual-column layout."""
+        header_color = INFO_COLOR if source == "photo" else JUDGMENT_COLOR
+        emoji = "📷" if source == "photo" else "🧠"
+        selected_set = set(selected_tags)
+        toggle_action = "toggle_tag" if source == "photo" else "toggle_judgment"
+
+        # Build dual-column rows
+        rows: list[dict] = []
+        for i in range(0, len(tags), 2):
+            cols: list[dict] = []
+            for tag in tags[i:i + 2]:
+                tid = tag.get("id", "")
+                is_sel = tid in selected_set
+                label = f"✓{tag.get('label', '')}" if is_sel else tag.get("label", "")
+                cols.append(
+                    {
+                        "type": "button",
+                        "style": "secondary" if is_sel else "primary",
+                        "color": NEUTRAL_COLOR if is_sel else INFO_COLOR,
+                        "flex": 1,
+                        "margin": "sm",
+                        "height": "sm",
+                        "action": {
+                            "type": "postback",
+                            "label": label[:20],
+                            "data": _postback_data(toggle_action, set=photo_set_type, cat=category_id, tag=tid),
+                            "displayText": tag.get("label", ""),
+                        },
+                    }
+                )
+            if len(cols) == 1:
+                cols.append({"type": "filler", "flex": 1})
+            rows.append({"type": "box", "layout": "horizontal", "spacing": "sm", "contents": cols})
+
+        body_contents: list[dict] = list(rows)
+
+        # Exclusion section
+        if exclusion_tags:
+            body_contents.append({"type": "separator", "margin": "md"})
+            body_contents.append({"type": "text", "text": "排除選項", "size": "xs", "color": NEUTRAL_COLOR, "margin": "sm"})
+            excl_row: list[dict] = []
+            for etag in exclusion_tags:
+                etid = etag.get("id", "")
+                is_esel = etid in selected_set
+                elabel = f"✓{etag.get('label', '')}" if is_esel else etag.get("label", "")
+                excl_row.append(
+                    {
+                        "type": "button",
+                        "style": "secondary" if is_esel else "primary",
+                        "color": NEUTRAL_COLOR if is_esel else EXCLUSION_COLOR,
+                        "flex": 1,
+                        "margin": "sm",
+                        "height": "sm",
+                        "action": {
+                            "type": "postback",
+                            "label": elabel[:20],
+                            "data": _postback_data("select_exclusion", set=photo_set_type, cat=category_id, tag=etid),
+                            "displayText": etag.get("label", ""),
+                        },
+                    }
+                )
+            if len(excl_row) == 1:
+                excl_row.append({"type": "filler", "flex": 1})
+            body_contents.append({"type": "box", "layout": "horizontal", "spacing": "sm", "contents": excl_row})
+
+        confirm_action = "confirm_multi" if source == "photo" else "confirm_judgment"
+        return {
+            "type": "flex",
+            "altText": f"{emoji} {category_name}",
+            "contents": {
+                "type": "bubble",
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "backgroundColor": header_color,
+                    "contents": [{"type": "text", "text": f"{emoji} ({current_index}/{total_count}) {category_name}", "color": "#FFFFFF", "weight": "bold"}],
+                },
+                "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": body_contents},
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "color": SUCCESS_COLOR,
+                            "action": {
+                                "type": "postback",
+                                "label": "確認選擇 ▶",
+                                "data": _postback_data(confirm_action, set=photo_set_type, cat=category_id),
+                            },
+                        }
+                    ],
+                },
+            },
+        }
+
+    @staticmethod
+    def photo_complete_card(
+        photo_set_type: str,
+        photo_set_name: str,
+        photo_order: int,
+        max_photos: int,
+        has_more_photos_allowed: bool,
+    ) -> dict:
+        """Green card shown after completing photo visible tags."""
+        buttons: list[dict] = []
+        if has_more_photos_allowed:
+            btn_label = f"📸 補充照片{photo_order + 1}"[:20]
+            buttons.append(
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": INFO_COLOR,
+                    "action": {
+                        "type": "postback",
+                        "label": btn_label,
+                        "data": _postback_data("supplement_photo", set=photo_set_type),
+                    },
+                }
+            )
+        buttons.append(
+            {
+                "type": "button",
+                "style": "primary",
+                "color": JUDGMENT_COLOR,
+                "action": {
+                    "type": "postback",
+                    "label": "🧠 填寫判斷標籤",
+                    "data": _postback_data("start_judgment", set=photo_set_type),
+                },
+            }
+        )
+        buttons.append(
+            {
+                "type": "button",
+                "style": "secondary",
+                "color": NEUTRAL_COLOR,
+                "action": {
+                    "type": "postback",
+                    "label": "⏭ 跳過判斷標籤",
+                    "data": _postback_data("skip_judgment", set=photo_set_type),
+                },
+            }
+        )
+        return {
+            "type": "flex",
+            "altText": "✅ 照片標註完成",
+            "contents": {
+                "type": "bubble",
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "backgroundColor": SUCCESS_COLOR,
+                    "contents": [{"type": "text", "text": "✅ 照片標註完成", "weight": "bold", "color": "#FFFFFF"}],
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": f"已完成第{photo_order}張 {photo_set_name} 的照片可見標註", "wrap": True, "size": "sm"},
+                    ],
+                },
+                "footer": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": buttons},
+            },
+        }
+
+    @staticmethod
+    def differential_tag_flex(
+        category_name: str,
+        new_tags: list[dict],
+        already_tagged: list[dict],
+        photo_set_type: str,
+        category_id: str,
+        current_index: int,
+        total_count: int,
+    ) -> dict:
+        """Flex for supplement photos showing already-tagged items and new options."""
+        body_contents: list[dict] = []
+
+        # Already tagged section
+        if already_tagged:
+            body_contents.append({"type": "text", "text": "已從前照片標註：", "size": "xs", "color": NEUTRAL_COLOR})
+            tagged_labels = "、".join(t.get("label", "") for t in already_tagged)
+            body_contents.append({"type": "text", "text": tagged_labels, "size": "xs", "color": NEUTRAL_COLOR, "wrap": True, "margin": "sm"})
+            body_contents.append({"type": "separator", "margin": "md"})
+
+        # New tags dual-column
+        for i in range(0, len(new_tags), 2):
+            cols: list[dict] = []
+            for tag in new_tags[i:i + 2]:
+                cols.append(
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": INFO_COLOR,
+                        "flex": 1,
+                        "margin": "sm",
+                        "height": "sm",
+                        "action": {
+                            "type": "postback",
+                            "label": tag.get("label", "")[:20],
+                            "data": _postback_data("toggle_tag", set=photo_set_type, cat=category_id, tag=tag.get("id", "")),
+                            "displayText": tag.get("label", ""),
+                        },
+                    }
+                )
+            if len(cols) == 1:
+                cols.append({"type": "filler", "flex": 1})
+            body_contents.append({"type": "box", "layout": "horizontal", "spacing": "sm", "contents": cols})
+
+        return {
+            "type": "flex",
+            "altText": f"📷 補充照片標註 {category_name}",
+            "contents": {
+                "type": "bubble",
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "backgroundColor": INFO_COLOR,
+                    "contents": [{"type": "text", "text": f"📷 補充照片 ({current_index}/{total_count}) {category_name}", "color": "#FFFFFF", "weight": "bold"}],
+                },
+                "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": body_contents},
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "color": SUCCESS_COLOR,
+                            "action": {
+                                "type": "postback",
+                                "label": "確認 ▶",
+                                "data": _postback_data("confirm_multi", set=photo_set_type, cat=category_id),
+                            },
+                        }
+                    ],
+                },
+            },
+        }
+
+    @staticmethod
+    def photo_set_summary_flex(
+        photo_set_type: str,
+        photo_set_name: str,
+        photos_data: list[dict],
+        judgment_data: dict,
+    ) -> dict:
+        """Summary of entire photo set with per-photo diffs and judgment tags."""
+        body_contents: list[dict] = []
+        for photo in photos_data:
+            order = photo.get("order", 1)
+            body_contents.append({"type": "text", "text": f"照片 {order}", "weight": "bold", "size": "sm", "margin": "md"})
+            visible = photo.get("visible_tags", {})
+            if visible:
+                for cat_id, tag_ids in visible.items():
+                    labels = tag_ids if isinstance(tag_ids, list) else [tag_ids]
+                    body_contents.append({"type": "text", "text": f"  {cat_id}：{'、'.join(str(l) for l in labels)}", "size": "xs", "wrap": True, "color": NEUTRAL_COLOR})
+            else:
+                body_contents.append({"type": "text", "text": "  (無標註)", "size": "xs", "color": NEUTRAL_COLOR})
+
+        # Judgment section
+        body_contents.append({"type": "separator", "margin": "md"})
+        body_contents.append({"type": "text", "text": "🧠 判斷標籤", "weight": "bold", "size": "sm", "margin": "md"})
+        if judgment_data:
+            for cat_id, tag_ids in judgment_data.items():
+                labels = tag_ids if isinstance(tag_ids, list) else [tag_ids]
+                body_contents.append({"type": "text", "text": f"  {cat_id}：{'、'.join(str(l) for l in labels)}", "size": "xs", "wrap": True, "color": NEUTRAL_COLOR})
+        else:
+            body_contents.append({"type": "text", "text": "  (未填寫)", "size": "xs", "color": NEUTRAL_COLOR})
+
+        return {
+            "type": "flex",
+            "altText": f"📋 {photo_set_name} 標註摘要",
+            "contents": {
+                "type": "bubble",
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "backgroundColor": SUCCESS_COLOR,
+                    "contents": [{"type": "text", "text": f"📋 {photo_set_name} 標註摘要", "weight": "bold", "color": "#FFFFFF"}],
+                },
+                "body": {"type": "box", "layout": "vertical", "contents": body_contents},
+                "footer": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "color": SUCCESS_COLOR,
+                            "action": {
+                                "type": "postback",
+                                "label": "繼續下一組 ▶",
+                                "data": _postback_data("next_set", set=photo_set_type),
+                            },
+                        }
+                    ],
+                },
+            },
+        }
+
+    @staticmethod
+    def annotation_progress_carousel(photo_sets_status: list[dict]) -> dict:
+        """Carousel showing progress for all photo sets."""
+        bubbles: list[dict] = []
+        for ps in photo_sets_status[:12]:
+            status = ps.get("status", "pending")
+            is_required = ps.get("is_required", True)
+            if status == "complete":
+                color = SUCCESS_COLOR
+                status_text = "✅ 完成"
+            elif is_required:
+                color = URGENT_COLOR
+                status_text = "❗ 未完成" if status == "pending" else "🔄 進行中"
+            else:
+                color = NEUTRAL_COLOR
+                status_text = "未完成" if status == "pending" else "🔄 進行中"
+            btn_label = "繼續" if status == "in_progress" else "開始"
+            if status == "complete":
+                btn_label = "查看"
+            bubbles.append(
+                {
+                    "type": "bubble",
+                    "size": "micro",
+                    "header": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "backgroundColor": color,
+                        "contents": [{"type": "text", "text": ps.get("type", ""), "color": "#FFFFFF", "weight": "bold", "align": "center"}],
+                    },
+                    "body": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {"type": "text", "text": ps.get("name", "")[:20], "weight": "bold", "size": "sm", "wrap": True},
+                            {"type": "text", "text": status_text, "size": "xs", "color": NEUTRAL_COLOR, "margin": "sm"},
+                            {"type": "text", "text": f"照片：{ps.get('photo_count', 0)}張", "size": "xs", "color": NEUTRAL_COLOR},
+                        ],
+                    },
+                    "footer": {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "button",
+                                "style": "primary",
+                                "color": color,
+                                "height": "sm",
+                                "action": {
+                                    "type": "postback",
+                                    "label": btn_label,
+                                    "data": _postback_data("goto_set", set=ps.get("type", "")),
+                                },
+                            }
+                        ],
+                    },
+                }
+            )
+        if not bubbles:
+            bubbles.append({"type": "bubble", "body": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": "無照片組資料"}]}})
+        return {
+            "type": "flex",
+            "altText": "照片標註進度",
+            "contents": {"type": "carousel", "contents": bubbles},
+        }
+
+    @staticmethod
+    def judgment_category_flex(
+        category_name: str,
+        tags: list[dict],
+        exclusion_tags: list[dict],
+        photo_set_type: str,
+        category_id: str,
+        selected_tags: list[str],
+        current_index: int,
+        total_count: int,
+    ) -> dict:
+        """Judgment tag Flex with JUDGMENT_COLOR header — orange 🧠 variant."""
+        return FlexBuilder.tag_multi_select_flex(
+            category_name=category_name,
+            tags=tags,
+            exclusion_tags=exclusion_tags,
+            photo_set_type=photo_set_type,
+            category_id=category_id,
+            selected_tags=selected_tags,
+            current_index=current_index,
+            total_count=total_count,
+            source="judgment",
+        )

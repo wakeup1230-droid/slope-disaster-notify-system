@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 
 
 async def download_line_content(message_id: str, access_token: str) -> bytes:
+    logger.info("[IMAGE_DOWNLOAD] Downloading LINE content message_id=%s", message_id)
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"https://api-data.line.me/v2/bot/message/{message_id}/content",
@@ -20,7 +21,13 @@ async def download_line_content(message_id: str, access_token: str) -> bytes:
             timeout=30.0,
         )
         resp.raise_for_status()
-        return resp.content
+        content_type = resp.headers.get('content-type', 'unknown')
+        data = resp.content
+        logger.info(
+            "[IMAGE_DOWNLOAD] Downloaded: message_id=%s, content_type=%s, size=%d bytes",
+            message_id, content_type, len(data),
+        )
+        return data
 
 
 async def reply_messages(
@@ -32,7 +39,7 @@ async def reply_messages(
         return
 
     async with httpx.AsyncClient() as client:
-        await client.post(
+        resp = await client.post(
             "https://api.line.me/v2/bot/message/reply",
             headers={
                 "Authorization": f"Bearer {access_token}",
@@ -41,6 +48,9 @@ async def reply_messages(
             json={"replyToken": reply_token, "messages": messages[:5]},
             timeout=10.0,
         )
+        import sys
+        print(f'[REPLY] status={resp.status_code}, body={resp.text[:500]}', file=sys.stderr, flush=True)
+        resp.raise_for_status()
 
 
 @router.post("")
@@ -57,11 +67,14 @@ async def handle_webhook(request: Request):
     payload = await request.json()
     events = payload.get("events", [])
 
+    import sys
+    print(f'[WEBHOOK] Received {len(events)} events', file=sys.stderr, flush=True)
     for event in events:
         try:
             event_type = str(event.get("type", ""))
             source = event.get("source", {}) or {}
             source_key = str(source.get("userId", ""))
+            print(f'[WEBHOOK] event_type={event_type}, source_key={source_key}', file=sys.stderr, flush=True)
             reply_token = str(event.get("replyToken", ""))
             event_id = str(
                 event.get("webhookEventId")
@@ -84,10 +97,14 @@ async def handle_webhook(request: Request):
                 elif message_type == "image":
                     message_id = str(message.get("id", ""))
                     if message_id:
-                        image_content = await download_line_content(
-                            message_id,
-                            settings.line_channel_access_token,
-                        )
+                        try:
+                            image_content = await download_line_content(
+                                message_id,
+                                settings.line_channel_access_token,
+                            )
+                        except Exception:
+                            logger.exception("[IMAGE_DOWNLOAD] Failed to download image message_id=%s", message_id)
+                            image_content = None
                 elif message_type == "location":
                     lat = message.get("latitude")
                     lon = message.get("longitude")
@@ -101,7 +118,7 @@ async def handle_webhook(request: Request):
                 postback_data = str(postback.get("data", ""))
 
             result = line_flow.handle_event(
-                event_type=event_type,
+                _event_type=event_type,
                 source_key=source_key,
                 event_id=event_id,
                 display_name=display_name,
@@ -120,7 +137,8 @@ async def handle_webhook(request: Request):
                     response_messages,
                     settings.line_channel_access_token,
                 )
-        except Exception:
-            logger.exception("Failed to process LINE event")
+            print(f'[WEBHOOK] result messages={len(response_messages)}, reply_token={reply_token[:20]}...', file=sys.stderr, flush=True)
+        except Exception as exc:
+            import traceback; traceback.print_exc(); print(f'[WEBHOOK] ERROR: {exc}', file=sys.stderr, flush=True)
 
     return {"ok": True}

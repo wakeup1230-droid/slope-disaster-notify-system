@@ -8,7 +8,7 @@ with content-addressed storage and annotation support.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,72 @@ class AnnotationTag(BaseModel):
     label: str = Field(description="Display label in Chinese")
     source: str = Field(default="user_select", description="'user_select' or 'user_input' or 'auto'")
 
+
+class PhotoSetPhoto(BaseModel):
+    """A single photo within a photo set (P1-P4 support 1-3 photos each)."""
+    photo_id: str = Field(description="Unique ID within set, e.g., 'P2_001'")
+    order: int = Field(default=1, description="Photo order within set (1-3)")
+    evidence_id: str = Field(default="", description="Reference to EvidenceMetadata.evidence_id")
+    file_path: str = Field(default="", description="Relative path to stored photo")
+    visible_tags: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Per-photo visible tags from 📷 source. Keys are category_id, values are selected tag_ids."
+    )
+
+
+class PhotoSetAnnotation(BaseModel):
+    """
+    Complete annotation data for a photo set (e.g., P2 set with 1-3 photos).
+
+    Separates photo-visible tags (per-photo) from judgment tags (per-set).
+    Supports differential tagging for supplement photos.
+    """
+    photo_set_type: str = Field(description="Photo type code, e.g., 'P2'")
+    photo_set_name: str = Field(default="", description="Chinese name, e.g., '災損近照'")
+    disaster_type: str = Field(default="", description="'revetment_retaining', 'road_slope', or 'bridge'")
+    max_photos: int = Field(default=3, description="Maximum photos allowed in this set")
+    is_required: bool = Field(default=True, description="Whether this photo set is required")
+
+    # Per-photo data (each photo has its own visible_tags)
+    photos: list[PhotoSetPhoto] = Field(default_factory=list)
+
+    # Judgment tags (filled once per set, after all photos)
+    judgment_tags: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Per-set judgment tags from 🧠 source. Keys are category_id, values are selected tag_ids."
+    )
+
+    # Merged visible tags across all photos in this set
+    merged_visible_tags: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Union of all per-photo visible_tags for reporting/AI training."
+    )
+
+    # Status tracking
+    photo_tags_complete: bool = False
+    judgment_tags_complete: bool = False
+    is_complete: bool = False
+
+    def merge_visible_tags(self) -> None:
+        """Merge visible_tags from all photos into merged_visible_tags."""
+        merged: dict[str, list[str]] = {}
+        for photo in self.photos:
+            for cat_id, tag_ids in photo.visible_tags.items():
+                if cat_id not in merged:
+                    merged[cat_id] = []
+                if isinstance(tag_ids, list):
+                    for tid in tag_ids:
+                        if tid not in merged[cat_id]:
+                            merged[cat_id].append(tid)
+                elif isinstance(tag_ids, str):
+                    if tag_ids not in merged[cat_id]:
+                        merged[cat_id].append(tag_ids)
+        self.merged_visible_tags = merged
+
+    def mark_complete(self) -> None:
+        """Mark the photo set as complete and perform final merge."""
+        self.merge_visible_tags()
+        self.is_complete = True
 
 class CustomNote(BaseModel):
     """A user-entered custom note for a photo."""

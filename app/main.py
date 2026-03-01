@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -20,6 +21,7 @@ from app.services.case_manager import CaseManager
 from app.services.case_store import CaseStore
 from app.services.evidence_store import EvidenceStore
 from app.services.image_processor import ImageProcessor
+from app.services.geology_service import GeologyService
 from app.services.lrs_service import LRSService
 from app.services.user_store import UserStore
 
@@ -53,6 +55,13 @@ def create_app() -> FastAPI:
             max_distance_m=settings.lrs_max_distance_m,
             grid_size_deg=settings.lrs_grid_size_deg,
         )
+        geology_service = None
+        try:
+            geology_service = GeologyService(
+                shapefile_dir=Path("Input/17_易淹水計畫流域地質圖"),
+            )
+        except Exception as exc:
+            logger.warning("Geology data not loaded: %s", exc)
 
         line_session_store_cls = _load_symbol("app.services.line_session", "LineSessionStore")
         notification_service_cls = _load_symbol(
@@ -69,6 +78,7 @@ def create_app() -> FastAPI:
             evidence_store=evidence_store,
             image_processor=image_processor,
             lrs_service=lrs_service,
+            geology_service=geology_service,
             notification_service=notification_service,
         )
 
@@ -79,6 +89,7 @@ def create_app() -> FastAPI:
         app.state.evidence_store = evidence_store
         app.state.image_processor = image_processor
         app.state.lrs_service = lrs_service
+        app.state.geology_service = geology_service
         app.state.line_flow = line_flow
         app.state.notification_service = notification_service
         app.state.line_session_store = line_session_store

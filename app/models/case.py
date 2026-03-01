@@ -134,6 +134,7 @@ class Case(BaseModel):
     milepost: Optional[MilepostInfo] = None
     coordinate_candidates: list[CoordinateCandidate] = Field(default_factory=list)
     primary_coordinate: Optional[CoordinateCandidate] = None
+    geology_info: dict[str, Any] = Field(default_factory=dict, description="Auto-queried geology data: 地層, 岩性, 斷層, 褶皺")
 
     # --- Damage Classification ---
     damage_mode_category: str = ""

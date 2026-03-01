@@ -61,6 +61,23 @@ class AnnotationSubStep(str, Enum):
     NEXT_PHOTO = "next_photo"
 
 
+class GuidedPhotoSubStep(str, Enum):
+    """Sub-steps for guided photo upload and inline annotation."""
+
+    # --- Existing (backward compat) ---
+    AWAITING_UPLOAD = "awaiting_upload"
+    SELECT_TAGS = "select_tags"
+    CUSTOM_INPUT = "custom_input"
+    CONFIRM_ANNOTATION = "confirm_annotation"
+    CHOOSE_OPTIONAL = "choose_optional"
+
+    # --- New: Photo-set annotation flow ---
+    PHOTO_VISIBLE_TAGS = "photo_visible_tags"
+    SUPPLEMENT_PHOTO = "supplement_photo"
+    JUDGMENT_TAGS = "judgment_tags"
+    TEXT_INPUT = "text_input"
+    SET_COMPLETE = "set_complete"
+
 class LineSession(BaseModel):
     """
     Persistent conversation state for a LINE user.

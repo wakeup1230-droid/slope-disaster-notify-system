@@ -10,6 +10,13 @@ from typing import SupportsFloat, SupportsIndex, cast
 
 from PIL import ExifTags, Image, ImageOps, UnidentifiedImageError
 
+# Register HEIC/HEIF support if pillow-heif is available
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pass
+
 from app.core.logging_config import get_logger
 
 
@@ -62,15 +69,21 @@ class ImageProcessor:
         self.accepted_formats = {fmt.upper() for fmt in (accepted_formats or defaults)}
 
     async def process_image(self, image_data: bytes, original_filename: str) -> ImageResult:
+        logger.info(
+            "[PROCESS_IMAGE] Start: filename=%s, data_size=%d bytes",
+            original_filename, len(image_data),
+        )
+
         validation_errors = await asyncio.to_thread(self.validate_image, image_data, original_filename)
 
         sha256 = await asyncio.to_thread(self.compute_hash, image_data)
+        logger.info("[PROCESS_IMAGE] SHA256=%s", sha256[:16])
 
         exif = ExifData()
         try:
             exif = await asyncio.to_thread(self.extract_exif, image_data)
         except Exception:
-            logger.exception("Failed to extract EXIF metadata")
+            logger.exception("[PROCESS_IMAGE] Failed to extract EXIF metadata for %s", original_filename)
 
         width = 0
         height = 0
@@ -79,13 +92,26 @@ class ImageProcessor:
 
         try:
             width, height, content_type = await asyncio.to_thread(self._get_image_info, image_data)
+            logger.info(
+                "[PROCESS_IMAGE] Image info: %dx%d, content_type=%s",
+                width, height, content_type,
+            )
             thumbnail_data = await asyncio.to_thread(
                 self.generate_thumbnail,
                 image_data,
                 self.thumbnail_size,
             )
+            logger.info("[PROCESS_IMAGE] Thumbnail generated: %d bytes", len(thumbnail_data))
         except Exception:
-            logger.exception("Failed to read image info or generate thumbnail")
+            logger.exception("[PROCESS_IMAGE] Failed to read image info or generate thumbnail for %s", original_filename)
+
+        is_valid = len(validation_errors) == 0
+        logger.info(
+            "[PROCESS_IMAGE] Done: filename=%s, valid=%s, errors=%s, exif_gps=%s, exif_camera=%s %s",
+            original_filename, is_valid, validation_errors or 'none',
+            f"({exif.gps_lat},{exif.gps_lon})" if exif.has_gps else 'N/A',
+            exif.camera_make or '?', exif.camera_model or '?',
+        )
 
         return ImageResult(
             sha256=sha256,
@@ -97,7 +123,7 @@ class ImageProcessor:
             thumbnail_data=thumbnail_data,
             exif=exif,
             validation_errors=validation_errors,
-            is_valid=len(validation_errors) == 0,
+            is_valid=is_valid,
         )
 
     def extract_exif(self, image_data: bytes) -> ExifData:
@@ -134,12 +160,24 @@ class ImageProcessor:
             orientation = exif_dict.get("Orientation")
             orientation_value = int(orientation) if isinstance(orientation, int) else None
 
+            make = self._safe_str(exif_dict.get("Make"))
+            model = self._safe_str(exif_dict.get("Model"))
+
+            logger.info(
+                "[EXIF] Extracted: gps=%s, datetime=%s, camera=%s %s, orientation=%s, size=%dx%d",
+                f"({gps[0]:.6f},{gps[1]:.6f})" if gps else 'N/A',
+                dt_iso or 'N/A',
+                make or '?', model or '?',
+                orientation_value,
+                image.width, image.height,
+            )
+
             return ExifData(
                 gps_lat=gps[0] if gps else None,
                 gps_lon=gps[1] if gps else None,
                 datetime_original=dt_iso,
-                camera_make=self._safe_str(exif_dict.get("Make")),
-                camera_model=self._safe_str(exif_dict.get("Model")),
+                camera_make=make,
+                camera_model=model,
                 orientation=orientation_value,
                 image_width=image.width,
                 image_height=image.height,
@@ -181,6 +219,7 @@ class ImageProcessor:
     def generate_thumbnail(self, image_data: bytes, size: int = 300) -> bytes:
         with Image.open(BytesIO(image_data)) as image:
             image = self.auto_orient(image)
+            original_mode = image.mode
             if image.mode not in ("RGB", "L"):
                 image = image.convert("RGB")
             elif image.mode == "L":
@@ -190,7 +229,12 @@ class ImageProcessor:
 
             output = BytesIO()
             image.save(output, format="JPEG", quality=85, optimize=True)
-            return output.getvalue()
+            thumb_bytes = output.getvalue()
+            logger.info(
+                "[THUMBNAIL] Generated: original_mode=%s, thumb_size=%dx%d, bytes=%d",
+                original_mode, image.width, image.height, len(thumb_bytes),
+            )
+            return thumb_bytes
 
     def validate_image(self, image_data: bytes, filename: str) -> list[str]:
         errors: list[str] = []
@@ -205,13 +249,17 @@ class ImageProcessor:
 
         heic_detected = self._is_heic(image_data, filename)
         if heic_detected:
-            logger.warning(
-                "HEIC/HEIF image detected. Pillow requires pillow-heif plugin for reliable support."
+            logger.info(
+                "HEIC/HEIF image detected (filename=%s, size=%d bytes)",
+                filename, len(image_data),
             )
-
         try:
             with Image.open(BytesIO(image_data)) as image:
                 detected_format = (image.format or "").upper()
+                logger.info(
+                    "Image opened: format=%s, size=%dx%d, filename=%s",
+                    detected_format, image.width, image.height, filename,
+                )
                 try:
                     image.verify()
                 except Exception:
@@ -222,19 +270,28 @@ class ImageProcessor:
                 detected_format = (image.format or detected_format).upper()
 
             if not self._is_format_accepted(detected_format, heic_detected):
-                accepted_text = ", ".join(sorted(self.accepted_formats))
+                # Show clean format names in error (strip IMAGE/ prefix from MIME types)
+                display_formats = sorted({f.upper().removeprefix("IMAGE/") for f in self.accepted_formats})
+                accepted_text = ", ".join(display_formats)
                 errors.append(
                     f"Unsupported image format '{detected_format or 'UNKNOWN'}'. Accepted formats: {accepted_text}."
                 )
 
-            if width < 640 or height < 480:
-                errors.append("Image dimensions must be at least 640x480 pixels.")
+            if width < 100 or height < 100:
+                errors.append("Image dimensions must be at least 100x100 pixels.")
 
         except UnidentifiedImageError:
+            logger.error(
+                "UnidentifiedImageError: cannot open image. filename=%s, size=%d bytes, heic_detected=%s",
+                filename, len(image_data), heic_detected,
+            )
             errors.append("File is not a valid image or format is unsupported.")
         except Exception:
-            logger.exception("Unexpected error while validating image")
+            logger.exception("Unexpected error while validating image (filename=%s)", filename)
             errors.append("Unable to validate image due to an internal error.")
+
+        if errors:
+            logger.warning("Image validation failed for %s: %s", filename, errors)
 
         return errors
 
@@ -275,16 +332,26 @@ class ImageProcessor:
         return False
 
     def _is_format_accepted(self, detected_format: str, heic_detected: bool) -> bool:
-        if detected_format in self.accepted_formats:
+        # accepted_formats may contain Pillow names ("JPEG") or MIME types ("IMAGE/JPEG").
+        # Normalise both sides for comparison.
+        normalised: set[str] = set()
+        for fmt in self.accepted_formats:
+            upper = fmt.upper()
+            # Strip "IMAGE/" prefix if present (MIME type -> Pillow name)
+            if upper.startswith("IMAGE/"):
+                upper = upper[6:]  # "IMAGE/JPEG" -> "JPEG"
+            normalised.add(upper)
+
+        if detected_format in normalised:
             return True
 
-        if detected_format == "JPEG" and "JPG" in self.accepted_formats:
+        if detected_format == "JPEG" and "JPG" in normalised:
             return True
 
-        if detected_format == "JPG" and "JPEG" in self.accepted_formats:
+        if detected_format == "JPG" and "JPEG" in normalised:
             return True
 
-        if heic_detected and ({"HEIC", "HEIF"} & self.accepted_formats):
+        if heic_detected and ({"HEIC", "HEIF"} & normalised):
             return True
 
         return False
