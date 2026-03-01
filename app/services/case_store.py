@@ -188,6 +188,15 @@ class CaseStore:
                 case_ids.append(p.name)
         return sorted(case_ids, reverse=True)
 
+    def load_all_cases(self) -> list[Case]:
+        """Load all Case objects into memory. Use for batch aggregations."""
+        cases: list[Case] = []
+        for case_id in self.list_all():
+            case = self.get(case_id)
+            if case is not None:
+                cases.append(case)
+        return cases
+
     def list_by_district(self, district_id: str) -> list[Case]:
         """List all cases for a given district."""
         cases = []

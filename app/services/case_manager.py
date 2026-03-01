@@ -286,13 +286,139 @@ class CaseManager:
         return self._store.list_by_user(user_id)
 
     def get_statistics(self) -> dict[str, Any]:
-        """Get system-wide case statistics."""
-        by_status = self._store.count_by_status()
-        by_district = self._store.count_by_district()
-        total = sum(by_status.values())
+        """Get system-wide case statistics for dashboard aggregation."""
+        cases = self._store.load_all_cases()
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        by_status: dict[str, int] = {}
+        by_district: dict[str, int] = {}
+
+        budget_total = 0.0
+        budget_closed = 0.0
+        budget_pending = 0.0
+        budget_unfilled = 0
+
+        photo_type_counts: dict[str, int] = {"P1": 0, "P2": 0, "P3": 0, "P4": 0}
+        cases_complete = 0
+
+        route_data: dict[str, dict[str, Any]] = {}
+        time_trend_counts: dict[str, int] = {}
+        damage_by_category: dict[str, int] = {}
+        damage_by_name: dict[str, int] = {}
+
+        closed_hours: list[float] = []
+        closed_hours_by_district: dict[str, list[float]] = {}
+        today_new = 0
+
+        for case in cases:
+            status = case.review_status.value
+            by_status[status] = by_status.get(status, 0) + 1
+
+            district = case.district_id
+            by_district[district] = by_district.get(district, 0) + 1
+
+            if case.created_at.startswith(today_str):
+                today_new += 1
+
+            created_date = case.created_at[:10]
+            time_trend_counts[created_date] = time_trend_counts.get(created_date, 0) + 1
+
+            if case.estimated_cost is None:
+                budget_unfilled += 1
+            else:
+                budget_total += case.estimated_cost
+                if case.review_status == ReviewStatus.CLOSED:
+                    budget_closed += case.estimated_cost
+                else:
+                    budget_pending += case.estimated_cost
+
+            present_photo_types: set[str] = set()
+            for evidence in case.evidence_summary:
+                photo_type = evidence.photo_type
+                if photo_type in photo_type_counts:
+                    photo_type_counts[photo_type] += 1
+                    present_photo_types.add(photo_type)
+            if len(present_photo_types) == 4:
+                cases_complete += 1
+
+            if case.road_number:
+                if case.road_number not in route_data:
+                    route_data[case.road_number] = {
+                        "road": case.road_number,
+                        "count": 0,
+                        "mileposts": [],
+                    }
+                route_data[case.road_number]["count"] += 1
+                if case.milepost is not None:
+                    route_data[case.road_number]["mileposts"].append(case.milepost.milepost_km)
+
+            if case.damage_mode_category:
+                category = case.damage_mode_category
+                damage_by_category[category] = damage_by_category.get(category, 0) + 1
+            if case.damage_mode_name:
+                name = case.damage_mode_name
+                damage_by_name[name] = damage_by_name.get(name, 0) + 1
+
+            if case.review_status == ReviewStatus.CLOSED:
+                try:
+                    created_at = datetime.fromisoformat(case.created_at)
+                    updated_at = datetime.fromisoformat(case.updated_at)
+                    hours = (updated_at - created_at).total_seconds() / 3600
+                except ValueError:
+                    continue
+
+                closed_hours.append(hours)
+                if district not in closed_hours_by_district:
+                    closed_hours_by_district[district] = []
+                closed_hours_by_district[district].append(hours)
+
+        total_cases = len(cases)
+        photo_overall_pct = round((cases_complete / total_cases) * 100, 1) if total_cases > 0 else 0.0
+
+        route_frequency: list[dict[str, Any]] = []
+        for route in route_data.values():
+            route["mileposts"] = sorted(route["mileposts"])
+            route_frequency.append(route)
+        route_frequency.sort(key=lambda item: (-item["count"], item["road"]))
+
+        time_trend = [
+            {"date": date_str, "count": count}
+            for date_str, count in sorted(time_trend_counts.items())
+        ]
+
+        district_avg_hours = {
+            district_id: round(sum(hours_list) / len(hours_list), 1)
+            for district_id, hours_list in closed_hours_by_district.items()
+            if hours_list
+        }
+        avg_hours = round(sum(closed_hours) / len(closed_hours), 1) if closed_hours else 0.0
 
         return {
-            "total_cases": total,
+            "total_cases": total_cases,
+            "today_new": today_new,
             "by_status": by_status,
             "by_district": by_district,
+            "budget": {
+                "total_estimated": round(budget_total, 1),
+                "closed_estimated": round(budget_closed, 1),
+                "pending_estimated": round(budget_pending, 1),
+                "unfilled_count": budget_unfilled,
+            },
+            "photo_completeness": {
+                "total_cases": total_cases,
+                "cases_complete": cases_complete,
+                "overall_pct": photo_overall_pct,
+                "by_photo_type": photo_type_counts,
+            },
+            "route_frequency": route_frequency,
+            "time_trend": time_trend,
+            "damage_types": {
+                "by_category": damage_by_category,
+                "by_name": damage_by_name,
+            },
+            "processing_time": {
+                "avg_hours": avg_hours,
+                "total_closed": len(closed_hours),
+                "by_district": district_avg_hours,
+            },
         }
