@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>邊坡災害統計儀表板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <style>
+        :root {
+            --bg-panel: rgba(255, 255, 255, 0.94);
+            --bg-panel-strong: rgba(255, 255, 255, 0.98);
+            --bg-soft: #f4f7fb;
+            --text-main: #1b2a3a;
+            --text-sub: #4a5c6f;
+            --stroke: #d6e2ee;
+            --shadow: 0 16px 40px rgba(18, 40, 68, 0.16);
+            --pending: #ff9800;
+            --progress: #2196f3;
+            --closed: #4caf50;
+            --returned: #f44336;
+            --accent: #0f6fbd;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            width: 100%; height: 100%;
+            color: var(--text-main);
+            font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
+            background: radial-gradient(circle at 20% 10%, #d9eefc 0%, #f5f8fc 48%, #edf2f8 100%);
+        }
+
+        /* ─── Header ─── */
+        .header {
+            position: sticky; top: 0; z-index: 100;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--stroke);
+            backdrop-filter: blur(10px);
+        }
+        .header h1 {
+            font-size: 18px; font-weight: 800; letter-spacing: 0.4px;
+        }
+        .header .meta {
+            font-size: 12px; color: var(--text-sub);
+        }
+
+        /* ─── Tab Bar ─── */
+        .tab-bar {
+            position: sticky; top: 54px; z-index: 99;
+            display: flex; gap: 2px;
+            padding: 0 24px;
+            background: var(--bg-soft);
+            border-bottom: 1px solid var(--stroke);
+            overflow-x: auto;
+        }
+        .tab-btn {
+            padding: 10px 18px; font-size: 14px; font-weight: 600;
+            border: none; background: transparent; cursor: pointer;
+            color: var(--text-sub); white-space: nowrap;
+            border-bottom: 3px solid transparent;
+            transition: color 0.2s, border-color 0.2s;
+        }
+        .tab-btn:hover { color: var(--text-main); }
+        .tab-btn.active {
+            color: var(--accent); border-bottom-color: var(--accent);
+        }
+
+        /* ─── Content ─── */
+        .content {
+            padding: 20px 24px 40px;
+            max-width: 1280px; margin: 0 auto;
+            overflow-y: auto;
+        }
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* ─── Cards ─── */
+        .card {
+            background: var(--bg-panel);
+            border: 1px solid var(--stroke);
+            border-radius: 14px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(8px);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .card-title {
+            font-size: 14px; font-weight: 700; color: var(--text-sub);
+            margin-bottom: 14px;
+        }
+
+        /* ─── Grid layouts ─── */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        .grid-2 > .card, .grid-3 > .card { margin-bottom: 0; }
+
+        /* ─── Metric Cards ─── */
+        .metric {
+            text-align: center; padding: 24px 16px;
+        }
+        .metric .value {
+            font-size: 32px; font-weight: 800; line-height: 1.2;
+        }
+        .metric .label {
+            font-size: 13px; color: var(--text-sub); margin-top: 6px;
+        }
+        .metric .suffix {
+            font-size: 14px; font-weight: 600; color: var(--text-sub);
+        }
+
+        /* ─── Status badges ─── */
+        .status-row {
+            display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+        }
+        .status-badge {
+            flex: 1; min-width: 100px; text-align: center;
+            padding: 14px 8px; border-radius: 12px;
+            background: var(--bg-soft); border: 1px solid var(--stroke);
+        }
+        .status-badge .num {
+            font-size: 28px; font-weight: 800; line-height: 1.2;
+        }
+        .status-badge .lbl {
+            font-size: 12px; color: var(--text-sub); margin-top: 4px;
+        }
+
+        /* ─── Table ─── */
+        .data-table {
+            width: 100%; border-collapse: collapse; font-size: 13px;
+        }
+        .data-table th {
+            text-align: left; padding: 8px 12px; font-weight: 700;
+            color: var(--text-sub); border-bottom: 2px solid var(--stroke);
+        }
+        .data-table td {
+            padding: 8px 12px; border-bottom: 1px solid var(--stroke);
+        }
+        .data-table tr:last-child td { border-bottom: none; }
+
+        /* ─── Progress bar ─── */
+        .progress-bar {
+            height: 8px; border-radius: 4px; background: var(--bg-soft);
+            overflow: hidden;
+        }
+        .progress-bar .fill {
+            height: 100%; border-radius: 4px;
+            background: var(--accent); transition: width 0.4s ease;
+        }
+
+        /* ─── Select ─── */
+        .styled-select {
+            padding: 8px 14px; font-size: 14px; border-radius: 10px;
+            border: 1px solid var(--stroke); background: var(--bg-panel-strong);
+            color: var(--text-main); font-family: inherit; cursor: pointer;
+            min-width: 180px;
+        }
+
+        /* ─── Map Link Button ─── */
+        .map-link-btn {
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; padding: 32px;
+            font-size: 20px; font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), #1a8ae6);
+            color: #fff; border: none; border-radius: 14px;
+            cursor: pointer; text-decoration: none;
+            box-shadow: 0 8px 24px rgba(15, 111, 189, 0.3);
+            transition: transform 0.15s, box-shadow 0.15s;
+            width: 100%; max-width: 480px; margin: 60px auto;
+        }
+        .map-link-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(15, 111, 189, 0.4);
+        }
+
+        /* ─── Empty state ─── */
+        .empty-state {
+            text-align: center; padding: 40px; color: var(--text-sub); font-size: 14px;
+        }
+
+        /* ─── Note ─── */
+        .note {
+            font-size: 12px; color: var(--text-sub); margin-top: 10px;
+            padding: 8px 12px; background: var(--bg-soft); border-radius: 8px;
+        }
+
+        /* ─── Responsive ─── */
+        @media (max-width: 640px) {
+            .header { padding: 10px 16px; }
+            .header h1 { font-size: 15px; }
+            .tab-bar { padding: 0 12px; }
+            .tab-btn { padding: 8px 12px; font-size: 13px; }
+            .content { padding: 14px 12px 32px; }
+            .card { padding: 14px; }
+            .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            .metric .value { font-size: 26px; }
+            .status-badge .num { font-size: 22px; }
+        }
+
+        /* ─── Chart container ─── */
+        .chart-wrap {
+            position: relative; width: 100%;
+        }
+        .chart-wrap canvas {
+            max-height: 320px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>📊 邊坡災害統計儀表板</h1>
+    <div class="meta">最後更新：<span id="lastUpdate">--:--:--</span></div>
+</div>
+
+<div class="tab-bar">
+    <button class="tab-btn active" data-tab="overview">總覽</button>
+    <button class="tab-btn" data-tab="budget">經費</button>
+    <button class="tab-btn" data-tab="photos">照片</button>
+    <button class="tab-btn" data-tab="routes">路線</button>
+    <button class="tab-btn" data-tab="map">地圖</button>
+</div>
+
+<div class="content">
+
+    <!-- ═══ Tab 1: 總覽 ═══ -->
+    <div id="tab-overview" class="tab-panel active">
+        <div class="status-row" id="statusBadges"></div>
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">案件狀態分布</div>
+                <div class="chart-wrap"><canvas id="chartStatusPie"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">每日通報趨勢</div>
+                <div class="chart-wrap"><canvas id="chartTimeTrend"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">各工務段案件數</div>
+                <div class="chart-wrap"><canvas id="chartDistrictBar"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">災害類型分布</div>
+                <div class="chart-wrap"><canvas id="chartDamageCategory"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">常見損壞模式 (Top 8)</div>
+                <div class="chart-wrap"><canvas id="chartDamageNames"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">平均處理時間 (小時/工務段)</div>
+                <div class="chart-wrap"><canvas id="chartProcessingTime"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Tab 2: 經費 ═══ -->
+    <div id="tab-budget" class="tab-panel">
+        <div class="grid-3" id="budgetMetrics"></div>
+        <div class="card" style="margin-top:20px;">
+            <div class="card-title">各工務段經費 (萬元)</div>
+            <div class="chart-wrap"><canvas id="chartBudgetBar"></canvas></div>
+            <div class="note" id="budgetNote"></div>
+        </div>
+    </div>
+
+    <!-- ═══ Tab 3: 照片 ═══ -->
+    <div id="tab-photos" class="tab-panel">
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title">照片完整度</div>
+                <div class="chart-wrap"><canvas id="chartPhotoDonut"></canvas></div>
+            </div>
+            <div class="card">
+                <div class="card-title">各類照片上傳狀況</div>
+                <div id="photoTable"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Tab 4: 路線 ═══ -->
+    <div id="tab-routes" class="tab-panel">
+        <div class="card">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+                <div class="card-title" style="margin-bottom:0;">路線選擇</div>
+                <select id="routeSelect" class="styled-select">
+                    <option value="">-- 請選擇路線 --</option>
+                </select>
+            </div>
+            <div class="chart-wrap"><canvas id="chartRouteMileage"></canvas></div>
+        </div>
+        <div class="card">
+            <div class="card-title">高頻路線 TOP 5</div>
+            <div id="routeTopTable"></div>
+        </div>
+    </div>
+
+    <!-- ═══ Tab 5: 地圖 ═══ -->
+    <div id="tab-map" class="tab-panel">
+        <a href="index.html" class="map-link-btn">🗺️ 查看地理分布</a>
+    </div>
+
+</div>
+
+<script>
+/* ══════════════════════════════════════════
+   Constants & State
+   ══════════════════════════════════════════ */
+const API_URL = '/api/statistics';
+const REFRESH_MS = 60_000;
+
+const STATUS_COLORS = { pending_review: '#ff9800', in_progress: '#2196f3', closed: '#4caf50', returned: '#f44336' };
+const STATUS_LABELS = { pending_review: '待審核', in_progress: '處理中', closed: '已結案', returned: '已退回' };
+const DISTRICT_LABELS = {
+    jingmei: '景美工務段', zhonghe: '中和工務段', zhongli: '中壢工務段',
+    hsinchu: '新竹工務段', fuxing: '復興工務段', keelung: '基隆工務段',
+};
+const DAMAGE_CATEGORY_LABELS = { revetment_retaining: '護岸/擋土牆類', road_slope: '道路邊坡類', bridge: '橋梁類' };
+const PHOTO_LABELS = { P1: '全景照 (P1)', P2: '近景照 (P2)', P3: '路面照 (P3)', P4: '設施照 (P4)' };
+
+const nf = new Intl.NumberFormat('zh-TW');
+const charts = {};
+
+/* ══════════════════════════════════════════
+   Tab Switching
+   ══════════════════════════════════════════ */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+});
+
+/* ══════════════════════════════════════════
+   Chart Helpers
+   ══════════════════════════════════════════ */
+function destroyChart(key) {
+    if (charts[key]) { charts[key].destroy(); delete charts[key]; }
+}
+
+function makeChart(key, ctx, config) {
+    destroyChart(key);
+    charts[key] = new Chart(ctx, config);
+    return charts[key];
+}
+
+const defaultFont = { family: '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif' };
+Chart.defaults.font = { ...Chart.defaults.font, ...defaultFont };
+
+/* ══════════════════════════════════════════
+   Data Fetch & Render
+   ══════════════════════════════════════════ */
+let latestData = null;
+
+async function fetchAndRender() {
+    try {
+        const resp = await fetch(API_URL);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        latestData = await resp.json();
+        render(latestData);
+        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-TW');
+    } catch (err) {
+        console.error('統計資料載入失敗:', err);
+    }
+}
+
+function render(d) {
+    renderOverview(d);
+    renderBudget(d);
+    renderPhotos(d);
+    renderRoutes(d);
+}
+
+/* ══════════════════════════════════════════
+   Tab 1: 總覽
+   ══════════════════════════════════════════ */
+function renderOverview(d) {
+    const bs = d.by_status || {};
+    const bd = d.by_district || {};
+
+    /* Status badges */
+    const badgeEl = document.getElementById('statusBadges');
+    const total = d.total_cases || 0;
+    const todayNew = d.today_new || 0;
+    badgeEl.innerHTML = `
+        <div class="status-badge">
+            <div class="num" style="color:var(--text-main)">${nf.format(total)}</div>
+            <div class="lbl">總案件</div>
+        </div>
+        <div class="status-badge">
+            <div class="num" style="color:#ff6b6b">+${nf.format(todayNew)}</div>
+            <div class="lbl">今日新增</div>
+        </div>
+        ${Object.entries(STATUS_LABELS).map(([k, v]) => `
+            <div class="status-badge">
+                <div class="num" style="color:${STATUS_COLORS[k]}">${nf.format(bs[k] || 0)}</div>
+                <div class="lbl">${v}</div>
+            </div>
+        `).join('')}
+    `;
+
+    /* Status pie */
+    const statusKeys = Object.keys(STATUS_LABELS);
+    const statusData = statusKeys.map(k => bs[k] || 0);
+    if (statusData.some(v => v > 0)) {
+        makeChart('statusPie', document.getElementById('chartStatusPie'), {
+            type: 'doughnut',
+            data: {
+                labels: statusKeys.map(k => STATUS_LABELS[k]),
+                datasets: [{ data: statusData, backgroundColor: statusKeys.map(k => STATUS_COLORS[k]), borderWidth: 0 }],
+            },
+            options: { responsive: true, plugins: { legend: { position: 'bottom' } } },
+        });
+    } else {
+        document.getElementById('chartStatusPie').parentElement.innerHTML = '<div class="empty-state">暫無資料</div>';
+    }
+
+    /* Time trend */
+    const tt = d.time_trend || [];
+    if (tt.length > 0) {
+        makeChart('timeTrend', document.getElementById('chartTimeTrend'), {
+            type: 'line',
+            data: {
+                labels: tt.map(t => t.date),
+                datasets: [{ label: '通報件數', data: tt.map(t => t.count), borderColor: 'var(--accent)', backgroundColor: 'rgba(15,111,189,0.1)', fill: true, tension: 0.3 }],
+            },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } },
+        });
+    } else {
+        document.getElementById('chartTimeTrend').parentElement.innerHTML = '<div class="empty-state">暫無資料</div>';
+    }
+
+    /* District bar */
+    const distKeys = Object.keys(bd).sort((a, b) => (bd[b] || 0) - (bd[a] || 0));
+    if (distKeys.length > 0) {
+        makeChart('districtBar', document.getElementById('chartDistrictBar'), {
+            type: 'bar',
+            data: {
+                labels: distKeys.map(k => DISTRICT_LABELS[k] || k),
+                datasets: [{ label: '案件數', data: distKeys.map(k => bd[k]), backgroundColor: 'rgba(15,111,189,0.7)', borderRadius: 6 }],
+            },
+            options: { responsive: true, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } },
+        });
+    } else {
+        document.getElementById('chartDistrictBar').parentElement.innerHTML = '<div class="empty-state">暫無資料</div>';
+    }
+
+    /* Damage category pie */
+    const dc = d.damage_types?.by_category || {};
+    const dcKeys = Object.keys(dc);
+    if (dcKeys.length > 0) {
+        const catColors = ['#ff9800', '#2196f3', '#4caf50', '#9c27b0', '#e91e63'];
+        makeChart('damageCategory', document.getElementById('chartDamageCategory'), {
+            type: 'doughnut',
+            data: {
+                labels: dcKeys.map(k => DAMAGE_CATEGORY_LABELS[k] || k),
+                datasets: [{ data: dcKeys.map(k => dc[k]), backgroundColor: catColors.slice(0, dcKeys.length), borderWidth: 0 }],
+            },
+            options: { responsive: true, plugins: { legend: { position: 'bottom' } } },
+        });
+    } else {
+        document.getElementById('chartDamageCategory').parentElement.innerHTML = '<div class="empty-state">暫無資料</div>';
+    }
+
+    /* Top damage names */
+    const dn = d.damage_types?.by_name || {};
+    const dnEntries = Object.entries(dn).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    if (dnEntries.length > 0) {
+        makeChart('damageNames', document.getElementById('chartDamageNames'), {
+            type: 'bar',
+            data: {
+                labels: dnEntries.map(e => e[0]),
+                datasets: [{ label: '件數', data: dnEntries.map(e => e[1]), backgroundColor: 'rgba(156,39,176,0.65)', borderRadius: 6 }],
+            },
+            options: { responsive: true, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } } },
+        });
+    } else {
+        document.getElementById('chartDamageNames').parentElement.innerHTML = '<div class="empty-state">暫無資料</div>';
+    }
+
+    /* Processing time */
+    const pt = d.processing_time?.by_district || {};
+    const ptKeys = Object.keys(pt).sort((a, b) => (pt[b] || 0) - (pt[a] || 0));
+    if (ptKeys.length > 0) {
+        makeChart('procTime', document.getElementById('chartProcessingTime'), {
+            type: 'bar',
+            data: {
+                labels: ptKeys.map(k => DISTRICT_LABELS[k] || k),
+                datasets: [{ label: '平均時數', data: ptKeys.map(k => Math.round(pt[k] * 10) / 10), backgroundColor: 'rgba(233,30,99,0.6)', borderRadius: 6 }],
+            },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+        });
+    } else {
+        document.getElementById('chartProcessingTime').parentElement.innerHTML = '<div class="empty-state">暫無資料</div>';
+    }
+}
+
+/* ══════════════════════════════════════════
+   Tab 2: 經費
+   ══════════════════════════════════════════ */
+function renderBudget(d) {
+    const b = d.budget || {};
+    const metricsEl = document.getElementById('budgetMetrics');
+    metricsEl.innerHTML = [
+        { label: '總初估經費', value: b.total_estimated || 0, color: 'var(--text-main)' },
+        { label: '已結案經費', value: b.closed_estimated || 0, color: 'var(--closed)' },
+        { label: '待處理經費', value: b.pending_estimated || 0, color: 'var(--pending)' },
+    ].map(m => `
+        <div class="card metric">
+            <div class="value" style="color:${m.color}">${nf.format(Math.round(m.value * 10) / 10)} <span class="suffix">萬元</span></div>
+            <div class="label">${m.label}</div>
+        </div>
+    `).join('');
+
+    const noteEl = document.getElementById('budgetNote');
+    const unfilled = b.unfilled_count || 0;
+    noteEl.textContent = unfilled > 0 ? `⚠️ 部分案件尚未填寫經費 (${unfilled}件)` : '';
+
+    /* Budget bar chart — placeholder: we don't have per-district budget breakdown in the API,
+       so show a simple closed vs pending overview */
+    const total = b.total_estimated || 0;
+    if (total > 0) {
+        makeChart('budgetBar', document.getElementById('chartBudgetBar'), {
+            type: 'bar',
+            data: {
+                labels: ['已結案', '待處理'],
+                datasets: [{
+                    label: '經費 (萬元)',
+                    data: [b.closed_estimated || 0, b.pending_estimated || 0],
+                    backgroundColor: ['rgba(76,175,80,0.7)', 'rgba(255,152,0,0.7)'],
+                    borderRadius: 6,
+                }],
+            },
+            options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+        });
+    } else {
+        document.getElementById('chartBudgetBar').parentElement.querySelector('.chart-wrap').innerHTML = '<div class="empty-state">暫無經費資料</div>';
+    }
+}
+
+/* ══════════════════════════════════════════
+   Tab 3: 照片
+   ══════════════════════════════════════════ */
+function renderPhotos(d) {
+    const pc = d.photo_completeness || {};
+    const totalC = pc.total_cases || 0;
+    const complete = pc.cases_complete || 0;
+    const pct = pc.overall_pct || 0;
+    const incomplete = totalC - complete;
+
+    /* Donut */
+    if (totalC > 0) {
+        makeChart('photoDonut', document.getElementById('chartPhotoDonut'), {
+            type: 'doughnut',
+            data: {
+                labels: ['完整', '不完整'],
+                datasets: [{ data: [complete, incomplete], backgroundColor: ['#4caf50', '#e0e0e0'], borderWidth: 0 }],
+            },
+            options: {
+                responsive: true, cutout: '65%',
+                plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.raw} 件 (${totalC > 0 ? Math.round(ctx.raw / totalC * 100) : 0}%)` } },
+                },
+            },
+            plugins: [{
+                id: 'centerText',
+                afterDraw(chart) {
+                    const { ctx: c, chartArea: { left, right, top, bottom } } = chart;
+                    const cx = (left + right) / 2, cy = (top + bottom) / 2;
+                    c.save();
+                    c.textAlign = 'center'; c.textBaseline = 'middle';
+                    c.font = 'bold 28px "Noto Sans TC"'; c.fillStyle = '#1b2a3a';
+                    c.fillText(`${Math.round(pct)}%`, cx, cy - 8);
+                    c.font = '12px "Noto Sans TC"'; c.fillStyle = '#4a5c6f';
+                    c.fillText('完整度', cx, cy + 16);
+                    c.restore();
+                },
+            }],
+        });
+    } else {
+        document.getElementById('chartPhotoDonut').parentElement.innerHTML = '<div class="empty-state">暫無資料</div>';
+    }
+
+    /* Photo table */
+    const byType = pc.by_photo_type || {};
+    const tableEl = document.getElementById('photoTable');
+    if (totalC > 0) {
+        tableEl.innerHTML = `
+            <table class="data-table">
+                <thead><tr><th>照片類型</th><th>已上傳</th><th>完成率</th><th></th></tr></thead>
+                <tbody>
+                    ${['P1', 'P2', 'P3', 'P4'].map(k => {
+                        const cnt = byType[k] || 0;
+                        const p = totalC > 0 ? Math.round(cnt / totalC * 100) : 0;
+                        return `<tr>
+                            <td>${PHOTO_LABELS[k] || k}</td>
+                            <td>${cnt} / ${totalC}</td>
+                            <td>${p}%</td>
+                            <td style="width:120px"><div class="progress-bar"><div class="fill" style="width:${p}%; background:${p >= 80 ? '#4caf50' : p >= 50 ? '#ff9800' : '#f44336'}"></div></div></td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        `;
+    } else {
+        tableEl.innerHTML = '<div class="empty-state">暫無資料</div>';
+    }
+}
+
+/* ══════════════════════════════════════════
+   Tab 4: 路線
+   ══════════════════════════════════════════ */
+function renderRoutes(d) {
+    const rf = d.route_frequency || [];
+    const selectEl = document.getElementById('routeSelect');
+
+    /* Populate dropdown (preserve selection) */
+    const prev = selectEl.value;
+    selectEl.innerHTML = '<option value="">-- 請選擇路線 --</option>' +
+        rf.map(r => `<option value="${r.road}">${r.road} (${r.count}件)</option>`).join('');
+    if (prev && rf.some(r => r.road === prev)) selectEl.value = prev;
+
+    /* Top 5 table */
+    const topEl = document.getElementById('routeTopTable');
+    const top5 = rf.slice(0, 5);
+    if (top5.length > 0) {
+        topEl.innerHTML = `
+            <table class="data-table">
+                <thead><tr><th>#</th><th>路線</th><th>案件數</th><th>里程範圍</th><th></th></tr></thead>
+                <tbody>
+                    ${top5.map((r, i) => {
+                        const mpSorted = [...(r.mileposts || [])].sort((a, b) => a - b);
+                        const range = mpSorted.length > 0 ? `${mpSorted[0].toFixed(1)}K ~ ${mpSorted[mpSorted.length - 1].toFixed(1)}K` : '-';
+                        return `<tr>
+                            <td>${i + 1}</td>
+                            <td>${r.road}</td>
+                            <td style="font-weight:700">${r.count}</td>
+                            <td>${range}</td>
+                            <td><a href="index.html?road=${encodeURIComponent(r.road)}" style="color:var(--accent);text-decoration:none;font-weight:600;">🗺️</a></td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        `;
+    } else {
+        topEl.innerHTML = '<div class="empty-state">暫無路線資料</div>';
+    }
+
+    /* Mileage chart for selected route */
+    renderRouteMileage();
+}
+
+function renderRouteMileage() {
+    const selectEl = document.getElementById('routeSelect');
+    const road = selectEl.value;
+    if (!road || !latestData) {
+        destroyChart('routeMileage');
+        return;
+    }
+    const rf = latestData.route_frequency || [];
+    const entry = rf.find(r => r.road === road);
+    if (!entry || !entry.mileposts || entry.mileposts.length === 0) {
+        destroyChart('routeMileage');
+        return;
+    }
+
+    /* Bucket mileposts into 1K segments */
+    const mps = entry.mileposts.map(Number).filter(v => !isNaN(v));
+    const minK = Math.floor(Math.min(...mps));
+    const maxK = Math.ceil(Math.max(...mps));
+    const labels = [];
+    const counts = [];
+    for (let k = minK; k <= maxK; k++) {
+        labels.push(`${k}K`);
+        counts.push(mps.filter(m => m >= k && m < k + 1).length);
+    }
+
+    makeChart('routeMileage', document.getElementById('chartRouteMileage'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{ label: '災害件數', data: counts, backgroundColor: 'rgba(233,30,99,0.6)', borderRadius: 4 }],
+        },
+        options: { responsive: true, plugins: { legend: { display: false }, title: { display: true, text: `${road} 里程災害分布` } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } },
+    });
+}
+
+document.getElementById('routeSelect').addEventListener('change', renderRouteMileage);
+
+/* ══════════════════════════════════════════
+   Init + Auto-refresh
+   ══════════════════════════════════════════ */
+fetchAndRender();
+setInterval(fetchAndRender, REFRESH_MS);
+</script>
+</body>
+</html>

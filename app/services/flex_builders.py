@@ -480,23 +480,182 @@ class FlexBuilder:
         }
 
     @staticmethod
-    def statistics_flex(stats: dict) -> dict:
+    def statistics_flex(stats: dict, stats_url: str = "") -> dict:
+        total = stats.get("total_cases", 0)
         by_status = stats.get("by_status", {})
         by_district = stats.get("by_district", {})
-        body = [
-            {"type": "text", "text": f"總案件：{stats.get('total_cases', 0)}", "weight": "bold", "size": "lg"},
-            {"type": "separator", "margin": "md"},
-            {"type": "text", "text": "依狀態", "weight": "bold", "margin": "md"},
-        ]
-        for key, value in by_status.items():
-            body.append({"type": "text", "text": f"{key}: {value}", "size": "sm"})
-        body.append({"type": "text", "text": "依工務段", "weight": "bold", "margin": "md"})
-        for key, value in by_district.items():
-            body.append({"type": "text", "text": f"{key}: {value}", "size": "sm"})
+        today_new = stats.get("today_new", 0)
+        
+        # Get district mapping
+        districts_list = _districts()
+        district_map = {d["id"]: d["name"] for d in districts_list}
+        
+        body = []
+        
+        # Row 1: Total cases + today new
+        body.append({
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"總案件 {total} 件",
+                    "weight": "bold",
+                    "size": "md",
+                    "flex": 1
+                },
+                {
+                    "type": "text",
+                    "text": f"今日 +{today_new}",
+                    "color": URGENT_COLOR,
+                    "size": "sm",
+                    "align": "end",
+                    "flex": 1
+                }
+            ]
+        })
+        
+        # Row 2: Status metric boxes (4 columns)
+        status_colors = {
+            "pending_review": "#FF9800",
+            "in_progress": "#2196F3",
+            "closed": "#4CAF50",
+            "returned": "#F44336"
+        }
+        status_labels = {
+            "pending_review": "待處理",
+            "in_progress": "處理中",
+            "closed": "已結案",
+            "returned": "退回"
+        }
+        
+        status_boxes = []
+        for key in ["pending_review", "in_progress", "closed", "returned"]:
+            count = by_status.get(key, 0)
+            status_boxes.append({
+                "type": "box",
+                "layout": "vertical",
+                "flex": 1,
+                "spacing": "sm",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": str(count),
+                        "size": "xxl",
+                        "weight": "bold",
+                        "color": status_colors[key],
+                        "align": "center"
+                    },
+                    {
+                        "type": "text",
+                        "text": status_labels[key],
+                        "size": "xs",
+                        "color": NEUTRAL_COLOR,
+                        "align": "center"
+                    }
+                ]
+            })
+        
+        body.append({
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "sm",
+            "contents": status_boxes
+        })
+        
+        # Separator
+        body.append({"type": "separator", "margin": "md"})
+        
+        # District statistics section
+        body.append({
+            "type": "text",
+            "text": "各工務段件數",
+            "weight": "bold",
+            "size": "sm",
+            "margin": "md"
+        })
+        
+        # Sort districts by count (descending)
+        sorted_districts = sorted(
+            by_district.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        for district_id, count in sorted_districts:
+            district_name = district_map.get(district_id, district_id)
+            body.append({
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": district_name,
+                        "flex": 1,
+                        "size": "sm"
+                    },
+                    {
+                        "type": "text",
+                        "text": f"{count} 件",
+                        "weight": "bold",
+                        "align": "end",
+                        "size": "sm"
+                    }
+                ]
+            })
+        
+        footer = None
+        if stats_url:
+            footer = {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "button",
+                        "action": {
+                            "type": "uri",
+                            "uri": stats_url,
+                            "label": "📊 查看完整統計"
+                        },
+                        "style": "primary",
+                        "color": INFO_COLOR
+                    }
+                ]
+            }
+        
+        contents = {
+            "type": "bubble",
+            "size": "mega",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": INFO_COLOR,
+                "paddingAll": "16px",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "📊 案件統計摘要",
+                        "color": "#FFFFFF",
+                        "size": "lg",
+                        "weight": "bold"
+                    }
+                ]
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": body
+            }
+        }
+        
+        if footer:
+            contents["footer"] = footer
+        
         return {
             "type": "flex",
-            "altText": "統計摘要",
-            "contents": {"type": "bubble", "header": {"type": "box", "layout": "vertical", "backgroundColor": SUCCESS_COLOR, "contents": [{"type": "text", "text": "系統統計", "color": "#FFFFFF", "weight": "bold"}]}, "body": {"type": "box", "layout": "vertical", "contents": body}},
+            "altText": f"統計摘要：共 {total} 件案件",
+            "contents": contents
         }
 
     @staticmethod

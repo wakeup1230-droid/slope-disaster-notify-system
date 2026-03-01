@@ -157,7 +157,8 @@ class LineFlowController:
             return await self._handle_management(session, session.source_key, user, text, payload)
 
         if command == "統計摘要" or action == "statistics":
-            return [FlexBuilder.statistics_flex(self._cases.get_statistics())]
+            stats_url = f"{self._settings.app_base_url.rstrip('/')}/webgis/stats.html"
+            return [FlexBuilder.statistics_flex(self._cases.get_statistics(), stats_url=stats_url)]
 
         if command == "個人資訊" or action == "profile":
             if not user:

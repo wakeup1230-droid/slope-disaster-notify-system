@@ -16,6 +16,7 @@ from app.routers.cases import router as cases_router
 from app.routers.health import router as health_router
 from app.routers.line_webhook import router as line_webhook_router
 from app.routers.vendor_api import router as vendor_router
+from app.routers.statistics import router as statistics_router
 from app.services.audit_logger import AuditLogger
 from app.services.case_manager import CaseManager
 from app.services.case_store import CaseStore
@@ -129,6 +130,7 @@ def create_app() -> FastAPI:
     app.include_router(line_webhook_router, prefix="/webhook", tags=["LINE Webhook"])
     app.include_router(cases_router, prefix="/api/cases", tags=["Cases"])
     app.include_router(vendor_router, prefix="/vendor", tags=["Vendor API"])
+    app.include_router(statistics_router, prefix="/api/statistics", tags=["Statistics"])
 
     webgis_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webgis")
     if os.path.isdir(webgis_path):
