@@ -258,6 +258,24 @@ class EvidenceStore:
                 return self.save_manifest(manifest)
         return False
 
+    def update_photo_type(
+        self,
+        case_id: str,
+        evidence_id: str,
+        photo_type: str,
+        photo_type_name: Optional[str] = None,
+    ) -> bool:
+        """Update photo_type metadata for an evidence item."""
+        manifest = self.get_manifest(case_id)
+        for ev in manifest.evidence:
+            if ev.evidence_id == evidence_id:
+                ev.photo_type = photo_type
+                if photo_type_name is not None:
+                    ev.photo_type_name = photo_type_name
+                ev.is_required_type = photo_type in {"P1", "P2", "P3", "P4"}
+                return self.save_manifest(manifest)
+        return False
+
     def get_evidence(self, case_id: str, evidence_id: str) -> Optional[EvidenceMetadata]:
         """Get metadata for a specific evidence item."""
         manifest = self.get_manifest(case_id)

@@ -3,13 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>邊坡災害通報與資訊整合管理系統 — WebGIS 地圖展示</title>
+    <title>公路即時災害通報管理系統(測試)</title>
     <link
         rel="stylesheet"
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
         crossorigin=""
     >
+    <!-- Issue #25: MarkerCluster CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+    <!-- MarkerCluster.Default.css removed: custom white bubble styles below -->
     <style>
         :root {
             --bg-panel: rgba(255, 255, 255, 0.94);
@@ -75,7 +78,7 @@
         .filter-panel {
             top: 14px;
             right: 14px;
-            width: min(340px, calc(100vw - 28px));
+            width: fit-content;
             padding: 14px 14px 12px;
         }
 
@@ -162,6 +165,55 @@
             padding: 12px;
         }
 
+        /* ── Layer Control ── */
+        .leaflet-control-layers {
+            border: 1px solid var(--stroke) !important;
+            border-radius: 12px !important;
+            box-shadow: var(--shadow) !important;
+            backdrop-filter: blur(8px);
+            background: var(--bg-panel) !important;
+            font-family: inherit !important;
+            font-size: 13px !important;
+            color: var(--text-main) !important;
+            padding: 8px 12px !important;
+        }
+
+        .leaflet-control-layers-toggle {
+            width: 40px !important;
+            height: 40px !important;
+            border-radius: 10px !important;
+            background-color: var(--bg-panel-strong) !important;
+            border: 1px solid var(--stroke) !important;
+            box-shadow: 0 4px 12px rgba(18,40,68,0.12) !important;
+        }
+
+        .leaflet-control-layers-expanded {
+            padding: 10px 14px !important;
+            min-width: 200px;
+        }
+
+        .leaflet-control-layers-separator {
+            border-top: 1px solid var(--stroke) !important;
+            margin: 6px 0 !important;
+        }
+
+        .leaflet-control-layers label {
+            display: flex !important;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 0;
+            cursor: pointer;
+        }
+
+        .leaflet-control-layers label span {
+            font-weight: 500;
+        }
+
+        .leaflet-control-layers input[type="radio"],
+        .leaflet-control-layers input[type="checkbox"] {
+            accent-color: var(--accent);
+        }
+
         .legend-item {
             display: flex;
             align-items: center;
@@ -177,9 +229,9 @@
         }
 
         .info-panel {
-            right: 14px;
-            bottom: 14px;
-            width: min(280px, calc(100vw - 28px));
+            left: 14px;
+            bottom: 250px;
+            width: 220px;
             padding: 12px;
         }
 
@@ -330,6 +382,173 @@
             text-decoration: none;
         }
 
+        /* ── Issue #24: Pulse animation for pending markers ── */
+        @keyframes marker-pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.6); }
+            70% { box-shadow: 0 0 0 12px rgba(255, 152, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0); }
+        }
+
+        .custom-marker-inner {
+            border-radius: 999px;
+            border: 3px solid #fff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            height: 100%;
+        }
+
+        .custom-marker-inner.pulse {
+            animation: marker-pulse 2s ease-out infinite;
+        }
+
+        /* ── Issue #25: MarkerCluster custom styles ── */
+        .marker-cluster {
+            border-radius: 999px;
+            text-align: center;
+            font-weight: 800;
+            color: #1b2a3a;
+            background: rgba(255, 255, 255, 0.95);
+            border: none;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+        }
+
+        .marker-cluster div {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+        }
+
+        .marker-cluster span {
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .marker-cluster-small {
+            background: rgba(255, 255, 255, 0.92);
+        }
+
+        .marker-cluster-medium {
+            background: rgba(255, 255, 255, 0.95);
+        }
+
+        .marker-cluster-large {
+            background: rgba(255, 255, 255, 0.98);
+        }
+
+        /* ── Issue #27: Detail panel rich content ── */
+        .detail-section {
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid var(--stroke);
+        }
+
+        .detail-section-title {
+            font-size: 14px;
+            font-weight: 800;
+            margin: 0 0 8px;
+            color: var(--text-main);
+        }
+
+        .fill-item {
+            padding: 3px 0;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .photo-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .photo-gallery img {
+            width: 100%;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid var(--stroke);
+            cursor: pointer;
+            transition: transform 0.15s ease;
+        }
+
+        .photo-gallery img:hover {
+            transform: scale(1.05);
+        }
+
+        .photo-caption {
+            font-size: 11px;
+            color: var(--text-sub);
+            text-align: center;
+            margin-top: 2px;
+        }
+
+        .btn-word-download {
+            display: inline-block;
+            margin-top: 12px;
+            padding: 9px 14px;
+            background: linear-gradient(135deg, #1e88e5, #0f6fbd);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            border-radius: 10px;
+            text-decoration: none;
+            transition: transform 0.2s ease, filter 0.2s ease;
+        }
+
+        .btn-word-download:hover {
+            transform: translateY(-1px);
+            filter: saturate(1.05);
+            color: #fff;
+        }
+
+        .btn-delete-case {
+            display: inline-block;
+            margin-top: 8px;
+            margin-left: 8px;
+            padding: 9px 14px;
+            background: linear-gradient(135deg, #e53935, #c62828);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            transition: transform 0.2s ease, filter 0.2s ease;
+        }
+
+        .btn-delete-case:hover {
+            transform: translateY(-1px);
+            filter: saturate(1.05);
+        }
+
+        /* ── Photo lightbox overlay ── */
+        .lightbox {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.85);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .lightbox.active {
+            display: flex;
+        }
+
+        .lightbox img {
+            max-width: 92vw;
+            max-height: 90vh;
+            border-radius: 8px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        /* ── Responsive: Tablet ── */
         @media (max-width: 900px) {
             .filter-panel {
                 top: 58px;
@@ -351,11 +570,176 @@
             .legend-panel {
                 left: 10px;
                 bottom: 10px;
+                width: 200px;
             }
 
             .info-panel {
+                left: 10px;
+                bottom: 230px;
+                width: 200px;
+            }
+        }
+
+        /* ── Responsive: Mobile (LINE in-app browser) ── */
+        @media (max-width: 768px) {
+            .filter-panel {
+                top: auto;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                width: 100%;
+                max-height: 55vh;
+                border-radius: 18px 18px 0 0;
+                padding: 16px 16px 24px;
+                overflow: auto;
+            }
+
+            .filter-panel.collapsed {
+                transform: translateY(100%);
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            .mobile-toggle {
+                display: inline-block;
+                top: 10px;
                 right: 10px;
-                bottom: 10px;
+                padding: 12px 16px;
+                font-size: 14px;
+            }
+
+            .legend-panel,
+            .info-panel {
+                position: fixed;
+                left: 0;
+                right: 0;
+                width: 100%;
+                border-radius: 0;
+                padding: 8px 12px;
+                flex-direction: row;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px 12px;
+                align-items: center;
+            }
+
+            .legend-panel {
+                bottom: 0;
+                border-radius: 0;
+                z-index: 601;
+            }
+
+            .legend-panel .panel-title {
+                font-size: 13px;
+                margin-right: 8px;
+            }
+
+            .legend-panel .legend-item {
+                margin-top: 0;
+                font-size: 12px;
+            }
+
+            .info-panel {
+                bottom: 42px;
+                z-index: 601;
+            }
+
+            .info-panel .panel-title {
+                font-size: 13px;
+                margin-right: 8px;
+                white-space: nowrap;
+            }
+
+            .info-panel .metric {
+                margin-top: 0;
+                font-size: 12px;
+                gap: 4px;
+                white-space: nowrap;
+            }
+
+            .info-panel .text-sub,
+            .info-panel .empty-tip {
+                display: none;
+            }
+
+            .detail-panel {
+                width: 100vw;
+                border-left: none;
+                border-radius: 0;
+                padding: 16px;
+            }
+
+            .detail-close {
+                width: 40px;
+                height: 40px;
+                font-size: 18px;
+            }
+
+            .check-item {
+                padding: 6px 4px;
+                font-size: 14px;
+                min-height: 44px;
+            }
+
+            .check-item input {
+                width: 20px;
+                height: 20px;
+            }
+
+            .btn {
+                padding: 12px 16px;
+                font-size: 14px;
+                min-height: 44px;
+            }
+
+            .leaflet-control-layers-toggle {
+                width: 44px !important;
+                height: 44px !important;
+            }
+
+            /* Adjust map bottom padding for bottom bars */
+            .leaflet-bottom.leaflet-left,
+            .leaflet-bottom.leaflet-right {
+                bottom: 80px;
+            }
+
+            /* Popup touch-friendly */
+            .leaflet-popup-content {
+                font-size: 14px !important;
+                line-height: 1.6 !important;
+            }
+
+            .leaflet-popup-close-button {
+                width: 30px !important;
+                height: 30px !important;
+                font-size: 20px !important;
+            }
+        }
+
+        /* ── Responsive: Small Phone ── */
+        @media (max-width: 480px) {
+            .filter-panel {
+                max-height: 65vh;
+                padding: 14px 12px 28px;
+            }
+
+            .mobile-toggle {
+                top: 8px;
+                right: 8px;
+                padding: 10px 14px;
+                font-size: 13px;
+            }
+
+            .info-panel .metric strong {
+                font-size: 13px;
+            }
+
+            .detail-panel {
+                padding: 12px;
+            }
+
+            .thumb {
+                max-height: 120px;
             }
         }
     </style>
@@ -407,8 +791,13 @@
     <section id="detailPanel" class="detail-panel" aria-live="polite">
         <button id="detailClose" class="detail-close" type="button" aria-label="關閉詳情">×</button>
         <h2 class="panel-title">案件詳情</h2>
-        <div id="detailContent" class="text-sub" style="margin-top: 8px; line-height: 1.7; white-space: pre-wrap;"></div>
+        <div id="detailContent" class="text-sub" style="margin-top: 8px; line-height: 1.7;"></div>
     </section>
+
+    <!-- Issue #27: Photo lightbox -->
+    <div id="lightbox" class="lightbox">
+        <img id="lightboxImg" src="" alt="照片放大檢視">
+    </div>
 
     <div id="loadingOverlay" class="loading" role="status" aria-live="polite">
         <div class="loading-card"><span class="spinner" aria-hidden="true"></span>資料載入中...</div>
@@ -421,10 +810,12 @@
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossorigin=""
     ></script>
+    <!-- Issue #25: MarkerCluster JS (must load after Leaflet) -->
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
     <script>
         const CONFIG = {
             API_BASE_URL: '/vendor',
-            API_KEY: 'your-api-key-here',
+            API_KEY: 'dev-vendor-key-change-me',
             REFRESH_INTERVAL_MS: 60000,
         };
 
@@ -467,14 +858,83 @@
             selectedStatuses: new Set(STATUS_KEYS),
         };
 
-        const map = L.map('map', { zoomControl: true }).setView([24.8, 121.3], 10);
+        const map = L.map('map', { zoomControl: true, maxZoom: 20 }).setView([24.8, 121.3], 10);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors',
-            maxZoom: 19,
+        /* ── Load layers from layers.json ── */
+        const baseMaps = {};
+        const overlayMaps = {};
+        let layerControl = null;
+
+        async function loadLayers() {
+            try {
+                const resp = await fetch('layers.json');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const cfg = await resp.json();
+
+                /* Basemaps */
+                (cfg.basemaps || []).forEach((layer) => {
+                    const attrHtml = layer.attribution_url
+                        ? `&copy; <a href="${layer.attribution_url}" target="_blank">${layer.attribution}</a>`
+                        : `&copy; ${layer.attribution}`;
+                    const tl = L.tileLayer(layer.url, {
+                        attribution: attrHtml,
+                        maxZoom: layer.max_zoom || 20,
+                    });
+                    baseMaps[layer.name] = tl;
+                    if (layer.default) tl.addTo(map);
+                });
+
+                /* Overlays */
+                (cfg.overlays || []).forEach((layer) => {
+                    const tl = L.tileLayer(layer.url, {
+                        attribution: layer.attribution || '',
+                        maxZoom: layer.max_zoom || 20,
+                        opacity: layer.opacity ?? 1,
+                    });
+                    overlayMaps[layer.name] = tl;
+                    if (layer.enabled_by_default) tl.addTo(map);
+                });
+
+                layerControl = L.control.layers(baseMaps, overlayMaps, {
+                    collapsed: true,
+                    position: 'topleft',
+                }).addTo(map);
+
+            } catch (err) {
+                console.error('[LAYERS] Failed to load layers.json:', err);
+                /* Fallback: basic OSM */
+                const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap contributors', maxZoom: 19,
+                });
+                baseMaps['OpenStreetMap'] = osm;
+                osm.addTo(map);
+                L.control.layers(baseMaps, {}, { collapsed: true, position: 'topleft' }).addTo(map);
+            }
+        }
+
+        loadLayers();
+
+        /* ── Issue #25: Use MarkerCluster instead of plain LayerGroup ── */
+        const markerLayer = L.markerClusterGroup({
+            maxClusterRadius: 50,
+            spiderfyOnMaxZoom: true,
+            showCoverageOnHover: false,
+            zoomToBoundsOnClick: true,
+            iconCreateFunction: function (cluster) {
+                const count = cluster.getChildCount();
+                let size = 'small';
+                if (count >= 10) size = 'medium';
+                if (count >= 50) size = 'large';
+                return L.divIcon({
+                    html: '<div><span>' + count + '</span></div>',
+                    className: 'marker-cluster marker-cluster-' + size,
+                    iconSize: L.point(40, 40),
+                });
+            },
         }).addTo(map);
 
-        const markerLayer = L.layerGroup().addTo(map);
+        /* Ensure case markers always render above overlay tiles */
+        map.on('overlayadd', () => { try { markerLayer.bringToFront(); } catch(e) { /* cluster may not support bringToFront */ } });
 
         const districtFiltersEl = document.getElementById('districtFilters');
         const statusFiltersEl = document.getElementById('statusFilters');
@@ -495,6 +955,19 @@
         const detailPanel = document.getElementById('detailPanel');
         const detailClose = document.getElementById('detailClose');
         const detailContent = document.getElementById('detailContent');
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightboxImg');
+
+        /* ── Issue #27: XSS-safe HTML escaping ── */
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         function createFilterCheckbox(container, key, label, checked, onChange) {
             const row = document.createElement('label');
@@ -586,6 +1059,7 @@
             return `<span class="status-badge" style="background:${color}">${label}</span>`;
         }
 
+        /* ── Issue #26: Popup with Word download link ── */
         function buildPopupHtml(caseItem) {
             const thumb = caseItem.thumbnail_url
                 ? `<img src="${caseItem.thumbnail_url}" alt="案件縮圖" class="thumb">`
@@ -598,40 +1072,203 @@
 
             return `
                 <div style="min-width:230px; max-width:280px; line-height:1.55; font-size:13px;">
-                    <div style="font-weight:800; margin-bottom:6px;">案件編號：${caseItem.case_id || '未知'}</div>
+                    <div style="font-weight:800; margin-bottom:6px;">案件編號：${escapeHtml(caseItem.case_id) || '未知'}</div>
                     <div>${getStatusBadge(caseItem.review_status)}</div>
-                    <div style="margin-top:6px;"><strong>位置：</strong>${district} ${road}</div>
-                    <div><strong>里程樁：</strong>${milepost}</div>
-                    <div><strong>災害型態：</strong>${damage}</div>
-                    <div><strong>緊急程度：</strong>${urgency}</div>
-                    <div><strong>描述：</strong>${truncateText(caseItem.description, 100)}</div>
+                    <div style="margin-top:6px;"><strong>位置：</strong>${escapeHtml(district)} ${escapeHtml(road)}</div>
+                    <div><strong>里程樁：</strong>${escapeHtml(milepost)}</div>
+                    <div><strong>災害型態：</strong>${escapeHtml(damage)}</div>
+                    <div><strong>緊急程度：</strong>${escapeHtml(urgency)}</div>
+                    <div><strong>描述：</strong>${escapeHtml(truncateText(caseItem.description, 100))}</div>
                     <div><strong>照片數：</strong>${caseItem.photo_count ?? 0}</div>
                     <div><strong>建立：</strong>${formatTime(caseItem.created_at)}</div>
                     <div><strong>更新：</strong>${formatTime(caseItem.updated_at)}</div>
                     ${thumb}
-                    <a href="#" class="popup-link" data-case-id="${caseItem.case_id}">查看詳情</a>
+                    <div style="display:flex; gap:12px; align-items:center; margin-top:8px;">
+                        <a href="#" class="popup-link" data-case-id="${escapeHtml(caseItem.case_id)}" style="margin:0;">查看詳情</a>
+                        <a href="/api/cases/${encodeURIComponent(caseItem.case_id)}/word" class="popup-link" style="margin:0;" target="_blank" download>📄 下載Word</a>
+                    </div>
                 </div>
             `;
         }
 
-        function showCaseDetail(caseItem) {
-            const district = caseItem.district_name || DISTRICT_LABELS[caseItem.district_id] || '未填寫';
-            const lines = [
-                `案件編號：${caseItem.case_id || '未知'}`,
-                `工務段：${district}`,
-                `道路：${caseItem.road_number || '未填寫'}`,
-                `里程樁：${caseItem.milepost?.milepost_display || '未提供'}`,
-                `災害型態：${caseItem.damage_mode_name || '未填寫'}`,
-                `狀態：${STATUS_LABELS[caseItem.review_status] || caseItem.review_status || '未填寫'}`,
-                `緊急程度：${URGENCY_LABELS[caseItem.urgency] || caseItem.urgency || '未填寫'}`,
-                `照片數：${caseItem.photo_count ?? 0}`,
-                `建立時間：${formatTime(caseItem.created_at)}`,
-                `更新時間：${formatTime(caseItem.updated_at)}`,
-                '',
-                `描述：${caseItem.description || '無'}`,
+        /* ── Issue #27: Build fill summary checklist ── */
+        function buildFillSummary(caseItem) {
+            const fields = [
+                { label: '工務段', value: caseItem.district_name || DISTRICT_LABELS[caseItem.district_id] },
+                { label: '道路', value: caseItem.road_number },
+                { label: '里程樁', value: caseItem.milepost?.milepost_display },
+                { label: '災害型態', value: caseItem.damage_mode_name },
+                { label: '狀態', value: STATUS_LABELS[caseItem.review_status] },
+                { label: '緊急程度', value: URGENCY_LABELS[caseItem.urgency] },
+                { label: '座標', value: caseItem.coordinate ? `${caseItem.coordinate.lat?.toFixed(4)}, ${caseItem.coordinate.lon?.toFixed(4)}` : null },
+                { label: '描述', value: caseItem.description },
+                { label: '照片', value: caseItem.photo_count > 0 ? `${caseItem.photo_count} 張` : null },
             ];
-            detailContent.textContent = lines.join('\n');
+
+            return fields.map(function (f) {
+                const filled = f.value && f.value !== '無' && f.value !== '';
+                const icon = filled ? '✅' : '⬜';
+                const display = filled ? escapeHtml(String(f.value)) : '<span style="color:var(--text-sub)">未填寫</span>';
+                return `<div class="fill-item">${icon} <strong>${escapeHtml(f.label)}：</strong>${display}</div>`;
+            }).join('');
+        }
+
+        /* ── Issue #27: Fetch case detail with evidence from vendor API ── */
+        async function fetchCaseDetail(caseId) {
+            try {
+                const resp = await fetch(`${CONFIG.API_BASE_URL}/cases/${encodeURIComponent(caseId)}`, {
+                    headers: { 'X-API-Key': CONFIG.API_KEY },
+                });
+                if (!resp.ok) return null;
+                return await resp.json();
+            } catch {
+                return null;
+            }
+        }
+
+        /* ── Delete case with confirmation ── */
+        async function deleteCase(caseId) {
+            if (!confirm(`確定要刪除案例 ${caseId} 嗎？\n\n此操作無法復原，所有相關資料將被永久刪除。`)) return;
+            try {
+                const resp = await fetch(`${CONFIG.API_BASE_URL}/cases/${encodeURIComponent(caseId)}`, {
+                    method: 'DELETE',
+                    headers: { 'X-API-Key': CONFIG.API_KEY },
+                });
+                if (resp.status === 204 || resp.ok) {
+                    alert(`案例 ${caseId} 已成功刪除。`);
+                    detailPanel.classList.remove('show');
+                    loadCases(); /* refresh map */
+                } else {
+                    const text = await resp.text();
+                    alert(`刪除失敗：${text || resp.status}`);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('刪除案例時發生錯誤');
+            }
+        }
+
+        /* ── Issue #27: Lightbox for full-size photo ── */
+        lightbox.addEventListener('click', function () {
+            lightbox.classList.remove('active');
+            lightboxImg.src = '';
+        });
+
+        function openLightbox(fullUrl) {
+            lightboxImg.src = fullUrl;
+            lightbox.classList.add('active');
+        }
+
+        /* ── Issue #27: Enhanced detail panel with photo preview + fill summary + Word download ── */
+        async function showCaseDetail(caseItem) {
+            const district = caseItem.district_name || DISTRICT_LABELS[caseItem.district_id] || '未填寫';
+
+            /* Basic info header */
+            let html = `
+                <div style="font-weight:800; font-size:15px; color:var(--text-main); margin-bottom:4px;">
+                    ${escapeHtml(caseItem.case_id || '未知')}
+                </div>
+                <div style="margin-bottom:8px;">${getStatusBadge(caseItem.review_status)}</div>
+                <div style="line-height:1.7; font-size:13px;">
+                    <div><strong>工務段：</strong>${escapeHtml(district)}</div>
+                    <div><strong>道路：</strong>${escapeHtml(caseItem.road_number || '未填寫')}</div>
+                    <div><strong>里程樁：</strong>${escapeHtml(caseItem.milepost?.milepost_display || '未提供')}</div>
+                    <div><strong>災害型態：</strong>${escapeHtml(caseItem.damage_mode_name || '未填寫')}</div>
+                    <div><strong>緊急程度：</strong>${escapeHtml(URGENCY_LABELS[caseItem.urgency] || caseItem.urgency || '未填寫')}</div>
+                    <div><strong>建立時間：</strong>${formatTime(caseItem.created_at)}</div>
+                    <div><strong>更新時間：</strong>${formatTime(caseItem.updated_at)}</div>
+                    <div style="margin-top:6px;"><strong>描述：</strong>${escapeHtml(caseItem.description || '無')}</div>
+                </div>
+            `;
+
+            /* Fill summary section */
+            html += `
+                <div class="detail-section">
+                    <h3 class="detail-section-title">填寫進度摘要</h3>
+                    ${buildFillSummary(caseItem)}
+                </div>
+            `;
+
+            /* Photo section placeholder */
+            html += `
+                <div class="detail-section">
+                    <h3 class="detail-section-title">照片預覽 (${caseItem.photo_count ?? 0} 張)</h3>
+                    <div id="photoGallery" class="photo-gallery">
+                        <div class="text-sub">載入中...</div>
+                    </div>
+                </div>
+            `;
+
+            /* Word download button */
+            html += `
+                <a href="/api/cases/${encodeURIComponent(caseItem.case_id)}/word"
+                   class="btn-word-download" target="_blank" download>
+                    📄 下載Word報告
+                </a>
+            `;
+
+            /* Delete case button */
+            html += `
+                <button class="btn-delete-case" onclick="deleteCase('${caseItem.case_id}')">
+                    🗑️ 刪除案例
+                </button>
+            `;
+
+            detailContent.innerHTML = html;
             detailPanel.classList.add('show');
+
+            /* Lazy-load photos from vendor detail API */
+            const detail = await fetchCaseDetail(caseItem.case_id);
+            const gallery = document.getElementById('photoGallery');
+            if (!gallery) return;
+
+            if (detail && detail.evidence_urls && detail.evidence_urls.length > 0) {
+                gallery.innerHTML = detail.evidence_urls.map(function (ev) {
+                    const typeName = escapeHtml(ev.photo_type_name || ev.photo_type || '');
+                    const annotations = escapeHtml(ev.annotations_summary || '');
+                    const caption = typeName + (annotations ? ' — ' + annotations : '');
+                    return `
+                        <div>
+                            <img src="${escapeHtml(ev.thumbnail_url)}"
+                                 alt="${typeName}"
+                                 loading="lazy"
+                                 onclick="openLightbox('${escapeHtml(ev.full_url)}')"
+                                 title="${caption}">
+                            <div class="photo-caption">${typeName}</div>
+                        </div>
+                    `;
+                }).join('');
+            } else if (detail && detail.evidence_urls && detail.evidence_urls.length === 0) {
+                gallery.innerHTML = '<div class="text-sub">尚無照片</div>';
+            } else {
+                gallery.innerHTML = '<div class="text-sub">無法載入照片</div>';
+            }
+
+            /* Update fill summary with richer detail data */
+            if (detail) {
+                const extraFields = [];
+                if (detail.damage_cause_names && detail.damage_cause_names.length > 0) {
+                    extraFields.push({ label: '致災原因', value: detail.damage_cause_names.join('、') });
+                }
+                if (detail.completeness_pct != null) {
+                    extraFields.push({ label: '完成度', value: `${detail.completeness_pct.toFixed(0)}%` });
+                }
+                if (detail.processing_stage) {
+                    extraFields.push({ label: '處理階段', value: detail.processing_stage });
+                }
+                if (detail.site_survey_summary && detail.site_survey_summary.length > 0) {
+                    extraFields.push({ label: '現勘', value: detail.site_survey_summary.join('、') });
+                }
+                if (extraFields.length > 0) {
+                    const extraHtml = extraFields.map(function (f) {
+                        return `<div class="fill-item">✅ <strong>${escapeHtml(f.label)}：</strong>${escapeHtml(String(f.value))}</div>`;
+                    }).join('');
+                    const fillSection = detailContent.querySelector('.detail-section');
+                    if (fillSection) {
+                        fillSection.insertAdjacentHTML('beforeend', extraHtml);
+                    }
+                }
+            }
         }
 
         function isCaseVisible(caseItem) {
@@ -641,6 +1278,7 @@
             );
         }
 
+        /* ── Issue #24 + #25: Render markers with DivIcon for clustering + visibility ── */
         function renderMarkers() {
             markerLayer.clearLayers();
             let visible = 0;
@@ -656,13 +1294,19 @@
                 }
 
                 const color = STATUS_COLORS[caseItem.review_status] || '#607d8b';
-                const marker = L.circleMarker([lat, lon], {
-                    radius: 7,
-                    color,
-                    weight: 2,
-                    fillColor: color,
-                    fillOpacity: 0.82,
+                const isPending = caseItem.review_status === 'pending_review';
+                const pulseClass = isPending ? ' pulse' : '';
+
+                /* Issue #24: Use L.marker with DivIcon for better visibility + clustering */
+                const icon = L.divIcon({
+                    className: '',
+                    html: `<div class="custom-marker-inner${pulseClass}" style="background:${color};"></div>`,
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10],
+                    popupAnchor: [0, -12],
                 });
+
+                const marker = L.marker([lat, lon], { icon: icon });
 
                 marker.bindPopup(buildPopupHtml(caseItem), { maxWidth: 300 });
                 marker.on('popupopen', () => {
@@ -685,7 +1329,7 @@
         }
 
         function updateSummary() {
-            totalCount.textContent = String(state.cases.length);
+            let filteredTotal = 0;
             const counts = {
                 pending_review: 0,
                 in_progress: 0,
@@ -695,16 +1339,19 @@
 
             state.cases.forEach((item) => {
                 if (!isCaseVisible(item)) return;
+                filteredTotal += 1;
                 if (counts[item.review_status] !== undefined) {
                     counts[item.review_status] += 1;
                 }
             });
 
+            totalCount.textContent = String(filteredTotal);
+
             countPending.textContent = String(counts.pending_review);
             countProgress.textContent = String(counts.in_progress);
             countClosed.textContent = String(counts.closed);
             countReturned.textContent = String(counts.returned);
-            lastRefresh.textContent = `最後更新：${new Date().toLocaleTimeString('zh-TW', { hour12: false })}`;
+            lastRefresh.textContent = `最後更新：${new Date().toLocaleString('zh-TW', { hour12: false })}`;
         }
 
         async function fetchCases() {
@@ -771,6 +1418,14 @@
             bindEvents();
             fetchCases();
             startAutoRefresh();
+
+            /* Auto-collapse filter panel on mobile */
+            if (window.innerWidth <= 768) {
+                filterPanel.classList.add('collapsed');
+            }
+
+            /* Invalidate map size after layout settles (LINE in-app browser fix) */
+            window.setTimeout(() => map.invalidateSize(), 300);
         }
 
         init();

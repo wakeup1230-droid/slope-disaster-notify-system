@@ -223,11 +223,11 @@
 </div>
 
 <div class="tab-bar">
-    <button class="tab-btn active" data-tab="overview">總覽</button>
-    <button class="tab-btn" data-tab="budget">經費</button>
-    <button class="tab-btn" data-tab="photos">照片</button>
-    <button class="tab-btn" data-tab="routes">路線</button>
-    <button class="tab-btn" data-tab="map">地圖</button>
+    <button type="button" class="tab-btn active" data-tab="overview">總覽</button>
+    <button type="button" class="tab-btn" data-tab="budget">經費</button>
+    <button type="button" class="tab-btn" data-tab="photos">照片</button>
+    <button type="button" class="tab-btn" data-tab="routes">路線</button>
+    <button type="button" class="tab-btn" data-tab="map">地圖</button>
 </div>
 
 <div class="content">
@@ -335,8 +335,8 @@ const charts = {};
    ══════════════════════════════════════════ */
 document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => { b.classList.remove('active'); });
+        document.querySelectorAll('.tab-panel').forEach(p => { p.classList.remove('active'); });
         btn.classList.add('active');
         document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
     });
@@ -369,7 +369,7 @@ async function fetchAndRender() {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         latestData = await resp.json();
         render(latestData);
-        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-TW');
+        document.getElementById('lastUpdate').textContent = new Date().toLocaleString('zh-TW', { hour12: false });
     } catch (err) {
         console.error('統計資料載入失敗:', err);
     }
@@ -391,7 +391,7 @@ function renderOverview(d) {
 
     /* Status badges */
     const badgeEl = document.getElementById('statusBadges');
-    const total = d.total_cases || 0;
+    const total = Object.keys(STATUS_LABELS).reduce((sum, key) => sum + (bs[key] || 0), 0);
     const todayNew = d.today_new || 0;
     badgeEl.innerHTML = `
         <div class="status-badge">

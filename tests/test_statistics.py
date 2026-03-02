@@ -245,6 +245,26 @@ def test_statistics_processing_time(manager: CaseManager, store: CaseStore) -> N
     assert processing["by_district"] == {"D01": 10.0, "D02": 22.0}
 
 
+def test_statistics_excludes_draft_cases_from_dashboard_counts(manager: CaseManager, store: CaseStore) -> None:
+    visible_case_1 = _make_case("case_20260301_1001", district_id="D01", review_status=ReviewStatus.PENDING_REVIEW)
+    visible_case_2 = _make_case("case_20260301_1002", district_id="D02", review_status=ReviewStatus.RETURNED)
+    draft_case_1 = _make_case("case_20260301_1003", district_id="D01", review_status=ReviewStatus.DRAFT)
+    draft_case_2 = _make_case("case_20260301_1004", district_id="D03", review_status=ReviewStatus.DRAFT)
+
+    assert store.create(visible_case_1) is True
+    assert store.create(visible_case_2) is True
+    assert store.create(draft_case_1) is True
+    assert store.create(draft_case_2) is True
+
+    stats = manager.get_statistics()
+
+    assert stats["total_cases"] == 2
+    assert stats["by_district"] == {"D01": 1, "D02": 1}
+    assert stats["by_status"][ReviewStatus.PENDING_REVIEW.value] == 1
+    assert stats["by_status"][ReviewStatus.RETURNED.value] == 1
+    assert ReviewStatus.DRAFT.value not in stats["by_status"]
+
+
 def test_load_all_cases(store: CaseStore) -> None:
     case_a = _make_case("case_20260301_0001")
     case_b = _make_case("case_20260301_0002")

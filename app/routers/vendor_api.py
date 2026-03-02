@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response
 
 from app.core.security import verify_vendor_api_key
 from app.models.case import Case
@@ -17,6 +18,21 @@ from app.models.vendor import (
 from app.services.evidence_store import EvidenceStore
 
 router = APIRouter()
+
+DISTRICT_FALLBACK_COORDS: dict[str, tuple[float, float]] = {
+    "jingmei": (24.9965, 121.5432),
+    "zhonghe": (24.9980, 121.4950),
+    "zhongli": (24.9533, 121.2256),
+    "hsinchu": (24.8040, 120.9715),
+    "fuxing": (24.8178, 121.3500),
+    "keelung": (25.1306, 121.7392),
+}
+
+VISIBLE_WEBGIS_STATUSES = {"pending_review", "in_progress", "closed", "returned"}
+
+
+def _is_webgis_visible_status(review_status: str) -> bool:
+    return review_status in VISIBLE_WEBGIS_STATUSES
 
 
 def _parse_iso_datetime(value: str) -> datetime:
@@ -37,6 +53,10 @@ def case_to_vendor_summary(case: Case, base_url: str) -> VendorCaseSummary:
     elif case.coordinate_candidates:
         first = case.coordinate_candidates[0]
         coordinate = VendorCoordinate(lat=first.lat, lon=first.lon, confidence=first.confidence)
+    elif case.review_status.value == "returned":
+        district_center = DISTRICT_FALLBACK_COORDS.get(case.district_id)
+        if district_center is not None:
+            coordinate = VendorCoordinate(lat=district_center[0], lon=district_center[1], confidence=0.2)
 
     milepost = None
     if case.milepost is not None:
@@ -141,7 +161,7 @@ async def vendor_list_cases(
     offset: int = Query(default=0, ge=0),
 ):
     case_store = request.app.state.case_store
-    base_url = str(request.app.state.settings.app_base_url).rstrip("/")
+    base_url = str(request.base_url).rstrip("/")
 
     since_dt = None
     if since:
@@ -154,6 +174,8 @@ async def vendor_list_cases(
     for case_id in case_store.list_all():
         case = case_store.get(case_id)
         if case is None:
+            continue
+        if not _is_webgis_visible_status(case.review_status.value):
             continue
         if district_id and case.district_id != district_id:
             continue
@@ -184,10 +206,66 @@ async def vendor_list_cases(
 async def vendor_get_case(request: Request, case_id: str):
     case_manager = request.app.state.case_manager
     evidence_store = request.app.state.evidence_store
-    base_url = str(request.app.state.settings.app_base_url).rstrip("/")
+    base_url = str(request.base_url).rstrip("/")
 
     case = case_manager.get_case(case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
 
     return case_to_vendor_detail(case, base_url, evidence_store)
+
+
+@router.delete(
+    "/cases/{case_id}",
+    dependencies=[Depends(verify_vendor_api_key)],
+    status_code=204,
+)
+async def vendor_delete_case(request: Request, case_id: str):
+    """
+    Delete a case permanently.
+
+    - Logs audit trail before deletion
+    - Removes all case files from disk
+    - Notifies LINE managers so 審核待辦 stays in sync
+    """
+    case_manager = request.app.state.case_manager
+    notification_service = request.app.state.notification_service
+    user_store = request.app.state.user_store
+
+    # Load case info before deletion (for notification)
+    case = case_manager.get_case(case_id)
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    district_name = case.district_name or case.district_id
+    road = case.road_number or ""
+    creator_id = case.created_by.user_id if case.created_by else ""
+
+    # Delete (audit logged inside case_manager)
+    if not case_manager.delete_case(case_id, actor="webgis_admin", actor_name="WebGIS 管理員"):
+        raise HTTPException(status_code=500, detail="Failed to delete case")
+
+    # Notify LINE managers asynchronously (best-effort)
+    try:
+        managers = user_store.list_managers()
+        manager_ids = [m.user_id for m in managers]
+        if creator_id and creator_id not in manager_ids:
+            # Also notify the case creator
+            await notification_service.notify_user(
+                creator_id,
+                f"\u3010\u6848\u4ef6 {case_id}\u3011\u60a8\u7684\u6848\u4ef6\u5df2\u88ab\u7ba1\u7406\u54e1\u522a\u9664\u3002",
+            )
+        if manager_ids:
+            await notification_service.notify_case_deleted(
+                case_id=case_id,
+                district_name=district_name,
+                road=road,
+                actor_name="WebGIS \u7ba1\u7406\u54e1",
+                manager_ids=manager_ids,
+            )
+    except Exception as exc:
+        # Deletion succeeded; notification failure is non-critical
+        import logging
+        logging.getLogger(__name__).warning("Delete notification failed: %s", exc)
+
+    return Response(status_code=204)

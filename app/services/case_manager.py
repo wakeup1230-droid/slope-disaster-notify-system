@@ -25,10 +25,18 @@ logger = get_logger(__name__)
 
 # Valid business status transitions
 VALID_TRANSITIONS: dict[ReviewStatus, set[ReviewStatus]] = {
+    ReviewStatus.DRAFT: {ReviewStatus.PENDING_REVIEW},
     ReviewStatus.PENDING_REVIEW: {ReviewStatus.IN_PROGRESS, ReviewStatus.RETURNED},
     ReviewStatus.IN_PROGRESS: {ReviewStatus.CLOSED, ReviewStatus.RETURNED},
     ReviewStatus.RETURNED: {ReviewStatus.PENDING_REVIEW},
     ReviewStatus.CLOSED: set(),  # Terminal state
+}
+
+VISIBLE_DASHBOARD_STATUSES: set[ReviewStatus] = {
+    ReviewStatus.PENDING_REVIEW,
+    ReviewStatus.IN_PROGRESS,
+    ReviewStatus.CLOSED,
+    ReviewStatus.RETURNED,
 }
 
 
@@ -76,6 +84,8 @@ class CaseManager:
                 district_name=district_name,
             ),
         )
+
+        case.calculate_completeness()
 
         if not self._store.create(case):
             logger.error("Failed to create case: %s", case_id)
@@ -269,6 +279,46 @@ class CaseManager:
 
         return case
 
+    def delete_case(
+        self,
+        case_id: str,
+        actor: str,
+        actor_name: str = "",
+    ) -> bool:
+        """
+        Delete a case permanently.
+
+        Logs an audit entry before deletion so we keep a record.
+
+        Returns:
+            True if deleted successfully, False otherwise.
+        """
+        case = self._store.get(case_id)
+        if case is None:
+            logger.warning("Case not found for deletion: %s", case_id)
+            return False
+
+        # Audit BEFORE deletion (directory will be removed)
+        self._audit.log(
+            case_id=case_id,
+            action="delete",
+            actor=actor,
+            actor_name=actor_name,
+            details={
+                "district_id": case.district_id,
+                "district_name": case.district_name,
+                "road_number": case.road_number or "",
+                "review_status": case.review_status.value,
+            },
+        )
+
+        if not self._store.delete(case_id):
+            logger.error("Failed to delete case: %s", case_id)
+            return False
+
+        logger.info("Case deleted: %s by %s", case_id, actor)
+        return True
+
     def get_case(self, case_id: str) -> Optional[Case]:
         """Get a case by ID."""
         return self._store.get(case_id)
@@ -287,7 +337,10 @@ class CaseManager:
 
     def get_statistics(self) -> dict[str, Any]:
         """Get system-wide case statistics for dashboard aggregation."""
-        cases = self._store.load_all_cases()
+        all_cases = self._store.load_all_cases()
+        # Dashboard/WebGIS unified counting scope.
+        # Draft cases are form drafts and should not be included.
+        cases = [case for case in all_cases if case.review_status in VISIBLE_DASHBOARD_STATUSES]
         today_str = datetime.now().strftime("%Y-%m-%d")
 
         by_status: dict[str, int] = {}

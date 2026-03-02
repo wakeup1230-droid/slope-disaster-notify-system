@@ -29,6 +29,12 @@ def _create_case(manager: CaseManager, user_id: str = "u1", name: str = "Manager
     assert case is not None
     return case
 
+def _submit_case(manager: CaseManager, user_id: str = "u1", name: str = "Manager") -> Case:
+    """Create and submit a case (DRAFT → PENDING_REVIEW), simulating full reporting flow."""
+    case = _create_case(manager, user_id=user_id, name=name)
+    submitted = manager.transition_review_status(case.case_id, ReviewStatus.PENDING_REVIEW, actor=user_id, actor_name=name)
+    assert submitted is not None
+    return submitted
 
 def test_create_case(manager: CaseManager, cases_dir: Path) -> None:
     case = manager.create_case(user_id="u1", display_name="Amy", real_name="Amy Chen")
@@ -77,7 +83,7 @@ def test_update_case(manager: CaseManager, cases_dir: Path) -> None:
 
 
 def test_transition_pending_to_in_progress(manager: CaseManager) -> None:
-    case = _create_case(manager)
+    case = _submit_case(manager)
 
     updated = manager.transition_review_status(
         case_id=case.case_id,
@@ -91,7 +97,7 @@ def test_transition_pending_to_in_progress(manager: CaseManager) -> None:
 
 
 def test_transition_pending_to_returned(manager: CaseManager) -> None:
-    case = _create_case(manager)
+    case = _submit_case(manager)
 
     updated = manager.transition_review_status(
         case_id=case.case_id,
@@ -106,7 +112,7 @@ def test_transition_pending_to_returned(manager: CaseManager) -> None:
 
 
 def test_transition_in_progress_to_closed(manager: CaseManager) -> None:
-    case = _create_case(manager)
+    case = _submit_case(manager)
     to_progress = manager.transition_review_status(case.case_id, ReviewStatus.IN_PROGRESS, actor="u1")
     assert to_progress is not None
 
@@ -117,7 +123,7 @@ def test_transition_in_progress_to_closed(manager: CaseManager) -> None:
 
 
 def test_transition_closed_is_terminal(manager: CaseManager) -> None:
-    case = _create_case(manager)
+    case = _submit_case(manager)
     assert manager.transition_review_status(case.case_id, ReviewStatus.IN_PROGRESS, actor="u1") is not None
     assert manager.transition_review_status(case.case_id, ReviewStatus.CLOSED, actor="u1") is not None
 
@@ -128,7 +134,7 @@ def test_transition_closed_is_terminal(manager: CaseManager) -> None:
 
 
 def test_transition_invalid(manager: CaseManager) -> None:
-    case = _create_case(manager)
+    case = _submit_case(manager)
 
     blocked = manager.transition_review_status(case.case_id, ReviewStatus.CLOSED, actor="u1")
 
@@ -142,22 +148,22 @@ def test_transition_nonexistent_case(manager: CaseManager) -> None:
 
 
 def test_transition_records_history(manager: CaseManager) -> None:
-    case = _create_case(manager)
+    case = _submit_case(manager)
 
     step1 = manager.transition_review_status(case.case_id, ReviewStatus.IN_PROGRESS, actor="u1", note="Start")
     assert step1 is not None
     step2 = manager.transition_review_status(case.case_id, ReviewStatus.RETURNED, actor="u1", note="Need correction")
 
     assert step2 is not None
-    assert len(step2.review_history) == 2
-    assert step2.review_history[0].from_status == ReviewStatus.PENDING_REVIEW.value
-    assert step2.review_history[0].to_status == ReviewStatus.IN_PROGRESS.value
-    assert step2.review_history[1].from_status == ReviewStatus.IN_PROGRESS.value
-    assert step2.review_history[1].to_status == ReviewStatus.RETURNED.value
+    assert len(step2.review_history) == 3
+    assert step2.review_history[1].from_status == ReviewStatus.PENDING_REVIEW.value
+    assert step2.review_history[1].to_status == ReviewStatus.IN_PROGRESS.value
+    assert step2.review_history[2].from_status == ReviewStatus.IN_PROGRESS.value
+    assert step2.review_history[2].to_status == ReviewStatus.RETURNED.value
 
 
 def test_transition_returned_sets_reason(manager: CaseManager) -> None:
-    case = _create_case(manager)
+    case = _submit_case(manager)
 
     updated = manager.transition_review_status(
         case.case_id,
@@ -218,6 +224,11 @@ def test_get_statistics(manager: CaseManager) -> None:
     case3 = manager.create_case(user_id="u3", district_id="D01", district_name="North")
     assert case1 is not None and case2 is not None and case3 is not None
 
+    # Submit all cases (DRAFT → PENDING_REVIEW) before further transitions
+    assert manager.transition_review_status(case1.case_id, ReviewStatus.PENDING_REVIEW, actor="u1") is not None
+    assert manager.transition_review_status(case2.case_id, ReviewStatus.PENDING_REVIEW, actor="u2") is not None
+    assert manager.transition_review_status(case3.case_id, ReviewStatus.PENDING_REVIEW, actor="u3") is not None
+
     assert manager.transition_review_status(case2.case_id, ReviewStatus.IN_PROGRESS, actor="u2") is not None
     assert manager.transition_review_status(case3.case_id, ReviewStatus.RETURNED, actor="u3", note="Fix fields") is not None
 
@@ -229,3 +240,36 @@ def test_get_statistics(manager: CaseManager) -> None:
     assert stats["by_status"][ReviewStatus.RETURNED.value] == 1
     assert stats["by_district"]["D01"] == 2
     assert stats["by_district"]["D02"] == 1
+
+
+def test_delete_case(manager: CaseManager, cases_dir: Path) -> None:
+    case = _create_case(manager)
+    case_id = case.case_id
+
+    # Verify case exists
+    assert manager.get_case(case_id) is not None
+
+    # Delete it
+    result = manager.delete_case(case_id, actor="admin", actor_name="Admin")
+    assert result is True
+
+    # Case no longer exists
+    assert manager.get_case(case_id) is None
+
+
+def test_delete_case_nonexistent(manager: CaseManager) -> None:
+    result = manager.delete_case("case_20990101_9999", actor="admin")
+    assert result is False
+
+
+def test_delete_case_removes_from_statistics(manager: CaseManager) -> None:
+    case1 = _submit_case(manager, user_id="u1")
+    case2 = _submit_case(manager, user_id="u2")
+
+    stats_before = manager.get_statistics()
+    assert stats_before["total_cases"] == 2
+
+    manager.delete_case(case1.case_id, actor="admin", actor_name="Admin")
+
+    stats_after = manager.get_statistics()
+    assert stats_after["total_cases"] == 1

@@ -8,8 +8,10 @@ from urllib.parse import parse_qs
 
 from app.core.config import get_settings
 from app.core.logging_config import get_logger
+from app.core.security import generate_admin_token
 from app.models.case import (
     Case,
+    CostBreakdownItem,
     CoordinateCandidate,
     EvidenceSummary,
     MilepostInfo,
@@ -17,11 +19,11 @@ from app.models.case import (
     ReviewStatus,
     SiteSurveyItem,
 )
-from app.models.line_state import FlowType, GuidedPhotoSubStep, LineSession, RegistrationStep, ReportingStep
+from app.models.line_state import FlowType, GuidedPhotoSubStep, LineSession, ProfileStep, RegistrationStep, ReportingStep
 from app.models.user import UserRole, UserStatus
 from app.services.case_manager import CaseManager
 from app.services.evidence_store import EvidenceStore
-from app.services.flex_builders import FlexBuilder
+from app.services.flex_builders import FlexBuilder, _postback_data
 from app.services.image_processor import ImageProcessor
 from app.services.line_session import LineSessionStore
 from app.services.lrs_service import LRSService
@@ -31,6 +33,7 @@ from app.services.user_store import UserStore
 logger = get_logger(__name__)
 
 HINT_CANCEL_BACK = "\n\n💡 輸入「取消」可取消流程，輸入「返回」可回上一步。"
+HINT_MENU = "\n\n💡 輸入「選單」開啟功能面板"
 REQUIRED_PHOTO_TYPES = ["P1", "P2", "P3", "P4"]
 OPTIONAL_PHOTO_TYPES = ["P5", "P6", "P7", "P8", "P9", "P10"]
 
@@ -46,6 +49,18 @@ class GeologyServiceLike(Protocol):
 
     def to_display_dict(self, result) -> dict[str, object]: ...
 
+    def to_display_text(self, result) -> str: ...
+
+class AdminBoundaryServiceLike(Protocol):
+    def query(self, lon: float, lat: float): ...
+
+    def to_display_text(self, result) -> str: ...
+
+
+class NationalParkServiceLike(Protocol):
+    def query(self, lon: float, lat: float): ...
+
+    def to_display_text(self, result) -> str: ...
 
 class LineFlowController:
     def __init__(
@@ -58,6 +73,8 @@ class LineFlowController:
         lrs_service: LRSService,
         notification_service: NotificationService,
         geology_service: object | None = None,
+        admin_boundary_service: object | None = None,
+        national_park_service: object | None = None,
     ) -> None:
         self._sessions = line_session_store
         self._users = user_store
@@ -66,12 +83,15 @@ class LineFlowController:
         self._images = image_processor
         self._lrs = lrs_service
         self._geology = cast(GeologyServiceLike | None, geology_service)
+        self._admin_boundary = cast(AdminBoundaryServiceLike | None, admin_boundary_service)
+        self._national_park = cast(NationalParkServiceLike | None, national_park_service)
         self._notify = notification_service
         self._settings = get_settings()
         self._districts = self._load_json("districts.json")
         self._damage_modes = self._load_json("damage_modes.json")
         self._photo_tags = self._load_json("photo_tags.json")
         self._site_survey = self._load_json("site_survey.json")
+        self._cost_items = self._load_json("cost_items.json").get("items", [])
 
     async def handle_event(
         self,
@@ -96,14 +116,53 @@ class LineFlowController:
         if incoming_text == "取消" or action == "cancel":
             session.reset()
             self._sessions.save(session)
-            return [FlexBuilder.text_message("已取消目前流程，您可以重新選擇功能。")]
+            return [FlexBuilder.text_message("已取消目前流程，您可以重新選擇功能。" + HINT_MENU)]
 
         if incoming_text == "返回":
             messages = self._handle_back(session)
             self._sessions.save(session)
             return messages
 
+        # ── Rich Menu 全域指令攔截 ──────────────────────────────
+        # Rich Menu 按鈕發送純文字，若 session 不在 IDLE 狀態，
+        # 必須先 reset 再導回 _handle_idle，否則文字會被當前 flow 吞掉。
+        _GLOBAL_COMMANDS = {"通報災害", "我的案件", "查詢案件", "查看地圖",
+                            "審核待辦", "統計摘要", "個人資訊", "操作說明", "選單", "功能"}
+        _GLOBAL_ACTIONS = {
+            "start_report", "query_cases", "view_map", "review_pending",
+            "statistics", "profile", "help", "main_menu",
+        }
+        if session.flow != FlowType.IDLE and (incoming_text in _GLOBAL_COMMANDS or action in _GLOBAL_ACTIONS):
+            session.reset()
+            # 不 save+return，落入下方 IDLE 分支繼續處理
+
         user = self._users.get(source_key)
+
+        # ── 權限閘門：非 ACTIVE 使用者只能用「個人資訊」和「操作說明」 ──
+        _ALLOWED_INACTIVE_COMMANDS = {"個人資訊", "操作說明", "選單", "功能"}
+        _ALLOWED_INACTIVE_ACTIONS = {"profile", "help", "main_menu", "edit_profile", "reapply",
+                                      "edit_real_name", "edit_role", "edit_district",
+                                      "confirm_edit_profile", "confirm_reapply"}
+        if user and not user.is_active:
+            _action = payload.get("action", "")
+            if (session.flow == FlowType.IDLE
+                    and incoming_text not in _ALLOWED_INACTIVE_COMMANDS
+                    and _action not in _ALLOWED_INACTIVE_ACTIONS):
+                status_label = {
+                    UserStatus.PENDING: "待審核",
+                    UserStatus.REJECTED: "已退件",
+                    UserStatus.SUSPENDED: "已停用",
+                }.get(user.status, user.status.value)
+                self._sessions.save(session)
+                return [FlexBuilder.text_message(
+                    f"您的帳號狀態為「{status_label}」，目前無法使用此功能。\n"
+                    f"請點選「個人資訊」查看帳號狀態或申請重新開通。" + HINT_MENU
+                )]
+            # Allow PROFILE flow to continue for inactive users
+            if session.flow not in (FlowType.IDLE, FlowType.PROFILE, FlowType.REGISTRATION):
+                session.reset()
+                self._sessions.save(session)
+                return [FlexBuilder.text_message("您的帳號尚未開通，無法使用此功能。" + HINT_MENU)]
 
         if session.flow == FlowType.IDLE and user is None:
             messages = self._start_registration(session, display_name)
@@ -121,6 +180,8 @@ class LineFlowController:
                 messages = await self._handle_query(session, source_key, user, incoming_text, payload)
             elif session.flow == FlowType.MANAGEMENT:
                 messages = await self._handle_management(session, source_key, user, incoming_text, payload)
+            elif session.flow == FlowType.PROFILE:
+                messages = await self._handle_profile(session, source_key, user, display_name, incoming_text, payload)
             elif session.flow == FlowType.PHOTO_ANNOTATION:
                 session.flow = FlowType.REPORTING
                 session.step = ReportingStep.UPLOAD_PHOTOS.value
@@ -129,7 +190,7 @@ class LineFlowController:
                 messages = await self._handle_reporting(session, source_key, display_name, message_type, incoming_text, payload, image_content)
             else:
                 session.reset()
-                messages = [FlexBuilder.text_message("流程狀態異常，已重置。")]
+                messages = [FlexBuilder.text_message("流程狀態異常，已重置。" + HINT_MENU)]
         finally:
             self._sessions.save(session)
 
@@ -156,6 +217,29 @@ class LineFlowController:
             session.start_flow(FlowType.MANAGEMENT)
             return await self._handle_management(session, session.source_key, user, text, payload)
 
+        if action == "open_case":
+            if not user:
+                return [FlexBuilder.text_message("尚未註冊，請先完成註冊。" + HINT_MENU)]
+            case = self._cases.get_case(payload.get("case_id", ""))
+            if not case:
+                return [FlexBuilder.text_message("案件不存在。")]
+            if not user.is_manager:
+                creator_id = case.created_by.user_id if case.created_by else ""
+                if creator_id != session.source_key:
+                    return [FlexBuilder.text_message("您無權查看此案件。")]
+            return [
+                FlexBuilder.case_detail_flex(
+                    self._case_to_detail_dict(case),
+                    include_review_actions=bool(user.is_manager),
+                )
+            ]
+
+        if action == "review_action":
+            if not user or not user.is_manager:
+                return [FlexBuilder.text_message("此功能僅限決策人員使用。")]
+            session.start_flow(FlowType.MANAGEMENT)
+            return await self._handle_management(session, session.source_key, user, text, payload)
+
         if command == "統計摘要" or action == "statistics":
             stats_url = f"{self._settings.app_base_url.rstrip('/')}/webgis/stats.html"
             return [FlexBuilder.statistics_flex(self._cases.get_statistics(), stats_url=stats_url)]
@@ -163,29 +247,22 @@ class LineFlowController:
         if command == "個人資訊" or action == "profile":
             if not user:
                 return self._start_registration(session, "")
-            role_name = "決策人員" if user.role == UserRole.MANAGER else "使用者人員"
-            status_name = {
-                UserStatus.PENDING: "待審核",
-                UserStatus.ACTIVE: "啟用中",
-                UserStatus.REJECTED: "已退件",
-                UserStatus.SUSPENDED: "停用",
-            }.get(user.status, user.status.value)
-            return [
-                FlexBuilder.profile_flex(
-                    {
-                        "real_name": user.real_name,
-                        "display_name": user.display_name,
-                        "role_name": role_name,
-                        "status_name": status_name,
-                        "district_name": user.district_name,
-                    }
-                )
-            ]
+            return [self._build_profile_message(user)]
+
+        if action in ("edit_profile", "reapply"):
+            if not user:
+                return self._start_registration(session, "")
+            session.start_flow(FlowType.PROFILE)
+            return await self._handle_profile(session, session.source_key, user, "", text, payload)
 
         if command == "操作說明" or action == "help":
             return [FlexBuilder.help_message()]
 
-        return [FlexBuilder.text_message("請使用下方選單，或輸入「操作說明」查看可用指令。")]
+        if command in {"選單", "功能"} or action == "main_menu":
+            is_mgr = bool(user and user.is_manager)
+            return [FlexBuilder.main_menu_flex(is_manager=is_mgr)]
+
+        return [FlexBuilder.text_message("請使用下方選單，或輸入「選單」開啟功能列表。")]
 
     def _start_registration(self, session: LineSession, display_name: str) -> list[dict]:
         session.start_flow(FlowType.REGISTRATION, RegistrationStep.ASK_REAL_NAME.value)
@@ -273,12 +350,14 @@ class LineFlowController:
 
             session.advance_step(RegistrationStep.DONE.value)
             session.reset()
-            return [FlexBuilder.text_message(done_text)]
+            is_mgr = (role == UserRole.MANAGER and status == UserStatus.ACTIVE)
+            return [FlexBuilder.text_message(done_text), FlexBuilder.main_menu_flex(is_manager=is_mgr)]
 
         return [FlexBuilder.text_message("註冊流程狀態異常，請重新開始。")]
 
     async def _prompt_reporting_district(self, session: LineSession, user) -> list[dict]:
-        if user and user.district_id:
+        # 「全區」使用者不自動套用，讓他們手動選擇災害發生的工務段
+        if user and user.district_id and user.district_id != "all":
             district = self._district_by_id(user.district_id)
             if district:
                 session.store_data("district_id", district["id"])
@@ -288,7 +367,7 @@ class LineFlowController:
                     FlexBuilder.text_message(f"已套用您的工務段：{district['name']}") ,
                     FlexBuilder.road_quick_reply(district["id"]),
                 ]
-        return [FlexBuilder.text_message("請選擇工務段：" + HINT_CANCEL_BACK), FlexBuilder.district_quick_reply()]
+        return [FlexBuilder.district_quick_reply(include_all=False)]
 
     async def _handle_reporting(
         self,
@@ -309,10 +388,10 @@ class LineFlowController:
 
         if step == ReportingStep.SELECT_DISTRICT.value:
             if action != "select_district":
-                return [FlexBuilder.district_quick_reply()]
+                return [FlexBuilder.district_quick_reply(include_all=False)]
             district = self._district_by_id(payload.get("district_id") or "")
             if not district:
-                return [FlexBuilder.text_message("請重新選擇工務段。"), FlexBuilder.district_quick_reply()]
+                return [FlexBuilder.text_message("請重新選擇工務段。"), FlexBuilder.district_quick_reply(include_all=False)]
             session.store_data("district_id", district["id"])
             session.store_data("district_name", district["name"])
             session.advance_step(ReportingStep.SELECT_ROAD.value)
@@ -323,7 +402,7 @@ class LineFlowController:
                 return [FlexBuilder.road_quick_reply(session.get_data("district_id", ""))]
             session.store_data("road", payload.get("road", ""))
             session.advance_step(ReportingStep.INPUT_COORDINATES.value)
-            return [FlexBuilder.text_message("請選擇輸入方式：\n1️⃣ 分享LINE定位\n2️⃣ 輸入座標（格式：25.033,121.567）\n3️⃣ 輸入里程樁號（格式：23K+500）" + HINT_CANCEL_BACK)]
+            return [FlexBuilder.coordinate_input_flex()]
 
         if step == ReportingStep.INPUT_COORDINATES.value:
             # --- Branch A: try milepost input first (e.g. "23K+500", "10K") ---
@@ -348,11 +427,19 @@ class LineFlowController:
                     )
                     session.advance_step(ReportingStep.CONFIRM_MILEPOST.value)
                     return [
+                        {
+                            "type": "location",
+                            "title": "\U0001f4cd 里程轉換座標",
+                            "address": f"{road} {display}",
+                            "latitude": lat,
+                            "longitude": lon,
+                        },
                         FlexBuilder.quick_reply_message(
-                            f"里程 {display} 對應座標：{lat:.6f}, {lon:.6f}\n是否確認？",
+                            f"里程 {display} 對應座標：{lat:.4f}, {lon:.4f}\n是否確認？",
                             [
                                 {"type": "postback", "label": "確認", "data": "action=confirm_milepost&ok=1", "displayText": "確認"},
                                 {"type": "postback", "label": "重新輸入", "data": "action=confirm_milepost&ok=0", "displayText": "重新輸入"},
+                                {"type": "postback", "label": "微調座標", "data": "action=confirm_milepost&ok=adjust", "displayText": "微調座標"},
                             ],
                         )
                     ]
@@ -409,11 +496,19 @@ class LineFlowController:
             )
             session.advance_step(ReportingStep.CONFIRM_MILEPOST.value)
             return [
+                {
+                    "type": "location",
+                    "title": "\U0001f4cd 里程轉換座標",
+                    "address": f"{best.road} {label}",
+                    "latitude": lat,
+                    "longitude": lon,
+                },
                 FlexBuilder.quick_reply_message(
                     f"系統推估里程：{label}（信心 {best.confidence:.2f}）\n是否確認？",
                     [
                         {"type": "postback", "label": "確認", "data": "action=confirm_milepost&ok=1", "displayText": "確認"},
                         {"type": "postback", "label": "重新輸入", "data": "action=confirm_milepost&ok=0", "displayText": "重新輸入"},
+                        {"type": "postback", "label": "微調座標", "data": "action=confirm_milepost&ok=adjust", "displayText": "微調座標"},
                     ],
                 )
             ]
@@ -421,11 +516,133 @@ class LineFlowController:
         if step == ReportingStep.CONFIRM_MILEPOST.value:
             if action != "confirm_milepost":
                 return [FlexBuilder.text_message("請選擇確認或重新輸入。")]
-            if payload.get("ok") != "1":
+            ok = payload.get("ok")
+            if ok == "adjust":
                 session.advance_step(ReportingStep.INPUT_COORDINATES.value)
-                return [FlexBuilder.text_message("請重新輸入座標（25.033,121.567）或里程樁號（23K+500）。")]
-            session.advance_step(ReportingStep.SELECT_DAMAGE_MODE.value)
-            return [FlexBuilder.damage_mode_carousel()]
+                return [FlexBuilder.text_message("請在地圖上選擇正確位置並分享位置訊息，或直接輸入座標（例：25.033,121.567）")]
+            if ok != "1":
+                session.advance_step(ReportingStep.INPUT_COORDINATES.value)
+                return [FlexBuilder.coordinate_input_flex()]
+            session.advance_step(ReportingStep.CONFIRM_GEO_INFO.value)
+            # ── 地質參考資訊（座標確認後立即顯示）──────────────
+            msgs: list[dict] = []
+            if self._geology is not None:
+                coords = session.get_data("coordinates", {})
+                lat = coords.get("lat")
+                lon = coords.get("lon")
+                if lat is not None and lon is not None:
+                    try:
+                        result = self._geology.query_all(lon=lon, lat=lat)
+                        hint = self._geology.to_display_text(result)
+                        if hint:
+                            msgs.append(FlexBuilder.geology_hint_flex(hint))
+                    except Exception:
+                        pass  # 查詢失敗不中斷流程
+            # ── 行政區查詢 ──────────────────────────────────
+            coords = session.get_data("coordinates", {})
+            _lat = coords.get("lat")
+            _lon = coords.get("lon")
+            if self._admin_boundary is not None and _lat is not None and _lon is not None:
+                try:
+                    ab_result = self._admin_boundary.query(lon=_lon, lat=_lat)
+                    if ab_result is not None:
+                        session.store_data("county_name", ab_result.county_name)
+                        session.store_data("town_name", ab_result.town_name)
+                        session.store_data("village_name", ab_result.village_name)
+                        msgs.append(FlexBuilder.text_message(self._admin_boundary.to_display_text(ab_result)))
+                except Exception:
+                    pass  # 查詢失敗不中斷流程
+            # ── 國家公園偵測 ────────────────────────────────
+            if self._national_park is not None and _lat is not None and _lon is not None:
+                try:
+                    np_result = self._national_park.query(lon=_lon, lat=_lat)
+                    park_text = self._national_park.to_display_text(np_result)
+                    if np_result is not None:
+                        session.store_data("national_park", np_result.park_name)
+                    else:
+                        session.store_data("national_park", "")
+                    msgs.append(FlexBuilder.text_message(park_text))
+                except Exception:
+                    pass  # 查詢失敗不中斷流程
+            # ── 位置圖（LINE LocationMessage）──────────────
+            milepost_info = session.get_data("milepost", {})
+            from_manual_milepost = milepost_info.get("source") == "manual_milepost"
+            if _lat is not None and _lon is not None and not from_manual_milepost:
+                road = session.get_data("road", "")
+                mp_display = milepost_info.get("milepost_display", "")
+                town = session.get_data("town_name", "")
+                village = session.get_data("village_name", "")
+                addr_parts = [p for p in [town, village, road, mp_display] if p]
+                msgs.append({
+                    "type": "location",
+                    "title": "\U0001f4cd 災害回報位置",
+                    "address": " ".join(addr_parts) if addr_parts else f"{_lat:.4f}, {_lon:.4f}",
+                    "latitude": _lat,
+                    "longitude": _lon,
+                })
+            msgs.append(FlexBuilder.quick_reply_message(
+                "以上為系統自動查詢之位置與地質參考資訊。\n確認已閱讀後，請點選「繼續」。",
+                [{"type": "postback", "label": "✅ 已閱讀，繼續", "data": "action=confirm_geo_info&ok=1", "displayText": "已閱讀，繼續"}],
+            ))
+            return msgs
+
+        if step == ReportingStep.CONFIRM_GEO_INFO.value:
+            if action != "confirm_geo_info":
+                return [FlexBuilder.quick_reply_message(
+                    "請點選「已閱讀，繼續」以繼續填報。",
+                    [{"type": "postback", "label": "✅ 已閱讀，繼續", "data": "action=confirm_geo_info&ok=1", "displayText": "已閱讀，繼續"}],
+                )]
+            session.advance_step(ReportingStep.PROJECT_NAME.value)
+            return [FlexBuilder.project_name_input_flex()]
+
+        if step == ReportingStep.PROJECT_NAME.value:
+            if action == "skip_project_name":
+                session.store_data("project_name", "")
+                session.advance_step(ReportingStep.DISASTER_DATE.value)
+                return [FlexBuilder.disaster_date_input_flex()]
+            if text:
+                session.store_data("project_name", text)
+                session.advance_step(ReportingStep.DISASTER_DATE.value)
+                return [FlexBuilder.disaster_date_input_flex()]
+            return [FlexBuilder.project_name_input_flex()]
+
+        if step == ReportingStep.DISASTER_DATE.value:
+            if action == "skip_disaster_date":
+                session.store_data("disaster_date", "")
+                session.advance_step(ReportingStep.NEARBY_LANDMARK.value)
+                return [FlexBuilder.text_input_with_skip_flex(
+                    "鄰近地標",
+                    "請輸入所在或鄰近之河溪、道路或顯著目標：",
+                    "skip_nearby_landmark",
+                )]
+            if text:
+                session.store_data("disaster_date", text)
+                session.advance_step(ReportingStep.NEARBY_LANDMARK.value)
+                return [FlexBuilder.text_input_with_skip_flex(
+                    "鄰近地標",
+                    "請輸入所在或鄰近之河溪、道路或顯著目標：",
+                    "skip_nearby_landmark",
+                )]
+            return [FlexBuilder.disaster_date_input_flex()]
+
+        if step == ReportingStep.NEARBY_LANDMARK.value:
+            if action == "skip_nearby_landmark":
+                session.store_data("nearby_landmark", "")
+                session.advance_step(ReportingStep.SELECT_DAMAGE_MODE.value)
+                msgs_landmark: list[dict] = []
+                msgs_landmark.append(FlexBuilder.damage_mode_carousel())
+                return msgs_landmark
+            if text:
+                session.store_data("nearby_landmark", text)
+                session.advance_step(ReportingStep.SELECT_DAMAGE_MODE.value)
+                msgs_landmark2: list[dict] = []
+                msgs_landmark2.append(FlexBuilder.damage_mode_carousel())
+                return msgs_landmark2
+            return [FlexBuilder.text_input_with_skip_flex(
+                "鄰近地標",
+                "請輸入所在或鄰近之河溪、道路或顯著目標：",
+                "skip_nearby_landmark",
+            )]
 
         if step == ReportingStep.SELECT_DAMAGE_MODE.value:
             if action == "select_damage_category":
@@ -460,11 +677,11 @@ class LineFlowController:
                 return [FlexBuilder.text_message("請至少選擇一項災害原因。"), FlexBuilder.damage_cause_quick_reply(session.get_data("damage_mode_id", ""))]
 
             session.advance_step(ReportingStep.INPUT_DESCRIPTION.value)
-            return [FlexBuilder.text_message("請描述災情內容（自由填寫）：\n\n可包含：\n• 影響範圍（崩塌面積、佔用車道）\n• 危險情形（是否持續滑動、裂縫擴大）\n• 即時處置（交管、封路、警示）\n\n📝 範例：\n『邊坡滑動約寬20m高15m，土石佔用外側車道，目前交管單線通行。』" + HINT_CANCEL_BACK)]
+            return [FlexBuilder.description_input_flex()]
 
         if step == ReportingStep.INPUT_DESCRIPTION.value:
             if not text:
-                return [FlexBuilder.text_message("請輸入災情描述。")]
+                return [FlexBuilder.description_input_flex()]
             session.store_data("description", text)
             session.advance_step(ReportingStep.UPLOAD_PHOTOS.value)
             session.store_data("guided_photo_step", 0)
@@ -569,6 +786,27 @@ class LineFlowController:
                 tag_def = self._resolve_photo_def(guided_photo_type, disaster_type)
                 if not tag_def:
                     return [FlexBuilder.text_message("照片類型不存在，請重新操作。")]
+                # ── 檢查是否有標註類別 ──────────────────
+                has_tags = bool(tag_def.get("photo_tags")) or bool(tag_def.get("judgment_tags"))
+                if not has_tags:
+                    # 無標註類別（P5-P10）：跳過標註流程，直接存入基本資訊
+                    idx = session.current_photo_index
+                    annotations = session.get_data("photo_annotations", {})
+                    annotations[str(idx)] = {
+                        "photo_type": guided_photo_type,
+                        "photo_type_name": tag_def.get("name", guided_photo_type),
+                        "tags": [],
+                        "custom_note": "",
+                    }
+                    session.store_data("photo_annotations", annotations)
+                    self._persist_annotation(session, idx, annotations[str(idx)])
+                    session.set_sub_step(GuidedPhotoSubStep.CHOOSE_OPTIONAL.value)
+                    uploaded_types = [item.get("photo_type", "") for item in annotations.values() if item.get("photo_type")]
+                    return [
+                        FlexBuilder.text_message(f"✅ {tag_def.get('name', guided_photo_type)} 上傳完成！"),
+                        FlexBuilder.optional_photo_chooser(uploaded_types, disaster_type),
+                    ]
+
                 session.annotation_accumulator = {
                     "photo_type": guided_photo_type,
                     "photo_type_name": tag_def.get("name", guided_photo_type),
@@ -593,8 +831,11 @@ class LineFlowController:
                     tag_index = int(session.annotation_accumulator.get("tag_index", 0))
                     if tag_index < len(categories):
                         category = categories[tag_index]
-                        option_count = len(category.get("tags", [])) + len(category.get("exclusion_tags", []))
-                        if not category.get("multi_select", True) and option_count <= 7 and action in {"select_tag", "select_exclusion"}:
+                        auto_advance = action == "select_exclusion" or (
+                            not category.get("multi_select", True)
+                            and action in {"select_tag", "toggle_tag", "toggle_judgment"}
+                        )
+                        if auto_advance:
                             session.annotation_accumulator["tag_index"] = tag_index + 1
                             if tag_index + 1 < len(categories):
                                 return [self._current_tag_category_message(session)]
@@ -605,6 +846,19 @@ class LineFlowController:
                                     [{"type": "postback", "label": "跳過", "data": "action=skip_custom_note", "displayText": "跳過"}],
                                 )
                             ]
+                    return [self._current_tag_category_message(session)]
+
+                if action == "prev_tag_category":
+                    tag_index = int(session.annotation_accumulator.get("tag_index", 0))
+                    if tag_index > 0:
+                        # Clear previous category's selections so user can re-pick
+                        categories = self._current_tag_categories(session)
+                        prev_cat_id = categories[tag_index - 1].get("category_id", "")
+                        session.annotation_accumulator["selected_tags"] = [
+                            t for t in session.annotation_accumulator.get("selected_tags", [])
+                            if t.get("category") != prev_cat_id
+                        ]
+                        session.annotation_accumulator["tag_index"] = tag_index - 1
                     return [self._current_tag_category_message(session)]
 
                 if action not in {"finish_tag_category", "confirm_multi"}:
@@ -673,7 +927,7 @@ class LineFlowController:
 
                 session.set_sub_step(GuidedPhotoSubStep.CHOOSE_OPTIONAL.value)
                 uploaded_types = [item.get("photo_type", "") for item in annotations.values() if item.get("photo_type")]
-                return [FlexBuilder.optional_photo_chooser(uploaded_types)]
+                return [FlexBuilder.optional_photo_chooser(uploaded_types, disaster_type)]
 
             if sub_step == GuidedPhotoSubStep.CHOOSE_OPTIONAL.value:
                 annotations = session.get_data("photo_annotations", {})
@@ -681,9 +935,9 @@ class LineFlowController:
                 if action == "choose_optional_type":
                     selected_photo_type = payload.get("photo_type", "")
                     if selected_photo_type not in OPTIONAL_PHOTO_TYPES:
-                        return [FlexBuilder.optional_photo_chooser(uploaded_types)]
+                        return [FlexBuilder.optional_photo_chooser(uploaded_types, disaster_type)]
                     if selected_photo_type in uploaded_types:
-                        return [FlexBuilder.optional_photo_chooser(uploaded_types)]
+                        return [FlexBuilder.optional_photo_chooser(uploaded_types, disaster_type)]
                     selected_def = self._resolve_photo_def(selected_photo_type, disaster_type)
                     session.store_data("guided_photo_step", OPTIONAL_PHOTO_TYPES.index(selected_photo_type))
                     session.store_data("guided_photo_type", selected_photo_type)
@@ -697,10 +951,32 @@ class LineFlowController:
                             photo_desc=self._photo_type_prompt(selected_photo_type, selected_def.get("name", selected_photo_type)),
                         )
                     ]
+                if action == "choose_supplement_type":
+                    selected_photo_type = payload.get("photo_type", "")
+                    if selected_photo_type not in REQUIRED_PHOTO_TYPES:
+                        return [FlexBuilder.optional_photo_chooser(uploaded_types, disaster_type)]
+                    selected_def = self._resolve_photo_def(selected_photo_type, disaster_type)
+                    session.store_data("guided_photo_step", REQUIRED_PHOTO_TYPES.index(selected_photo_type))
+                    session.store_data("guided_photo_type", selected_photo_type)
+                    session.store_data("guided_phase", "supplement")
+                    session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
+                    return [
+                        FlexBuilder.guided_photo_prompt(
+                            photo_number=len(uploaded) + 1,
+                            photo_type=selected_photo_type,
+                            photo_name=selected_def.get("name", selected_photo_type),
+                            photo_desc=self._photo_type_prompt(selected_photo_type, selected_def.get("name", selected_photo_type)),
+                        )
+                    ]
                 if action == "finish_photos":
-                    session.advance_step(ReportingStep.SITE_SURVEY.value)
-                    return [self._site_survey_quick_reply(session.get_data("site_survey_selected", []))]
-                return [FlexBuilder.optional_photo_chooser(uploaded_types)]
+                    # Auto-fill site survey from P1 photo annotations, skip interactive step
+                    self._auto_fill_site_survey(session)
+                    session.advance_step(ReportingStep.ESTIMATED_COST.value)
+                    session.store_data("cost_current_index", 0)
+                    session.store_data("cost_items", [])
+                    item = self._cost_items[0]
+                    return [FlexBuilder.cost_item_prompt_flex(0, item["name"], item["unit"], item.get("unit_price"), item["input_type"])]
+                return [FlexBuilder.optional_photo_chooser(uploaded_types, disaster_type)]
 
             session.set_sub_step(GuidedPhotoSubStep.AWAITING_UPLOAD.value)
             return [FlexBuilder.guided_photo_prompt(len(uploaded) + 1, guided_photo_type, photo_name, photo_desc)]
@@ -716,37 +992,266 @@ class LineFlowController:
                 session.store_data("site_survey_selected", selected)
             elif action == "survey_done":
                 session.advance_step(ReportingStep.ESTIMATED_COST.value)
-                return [
-                    FlexBuilder.quick_reply_message(
-                        "初估經費（萬元）？可輸入數字或按跳過。" + HINT_CANCEL_BACK,
-                        [{"type": "postback", "label": "跳過", "data": "action=skip_cost", "displayText": "跳過"}],
-                    )
-                ]
+                session.store_data("cost_current_index", 0)
+                session.store_data("cost_items", [])
+                item = self._cost_items[0]
+                return [FlexBuilder.cost_item_prompt_flex(0, item["name"], item["unit"], item.get("unit_price"), item["input_type"])]
 
             return [self._site_survey_quick_reply(selected)]
 
         if step == ReportingStep.ESTIMATED_COST.value:
-            if action == "skip_cost":
-                session.store_data("estimated_cost", None)
-            else:
+            cost_index = session.get_data("cost_current_index", 0)
+            cost_items_data = session.get_data("cost_items", [])
+
+            if action == "cost_redo":
+                session.store_data("cost_current_index", 0)
+                session.store_data("cost_items", [])
+                item = self._cost_items[0]
+                return [FlexBuilder.cost_item_prompt_flex(0, item["name"], item["unit"], item.get("unit_price"), item["input_type"])]
+
+            if action == "cost_confirm":
+                total = sum(ci.get("amount", 0) or 0 for ci in cost_items_data)
+                session.store_data("estimated_cost", total / 10000 if total > 0 else None)
+                session.advance_step(ReportingStep.DISASTER_TYPE.value)
+                return [FlexBuilder.disaster_type_select_flex()]
+
+            if action == "cost_skip":
+                if cost_index < len(self._cost_items):
+                    item = self._cost_items[cost_index]
+                    cost_items_data.append(
+                        {
+                            "item_id": item["id"],
+                            "item_name": item["name"],
+                            "unit": item["unit"],
+                            "unit_price": item.get("unit_price"),
+                            "quantity": 0,
+                            "amount": 0,
+                        }
+                    )
+                    session.store_data("cost_items", cost_items_data)
+                    cost_index += 1
+                    session.store_data("cost_current_index", cost_index)
+            elif text:
                 try:
-                    if text:
-                        session.store_data("estimated_cost", float(text))
-                    else:
-                        raise ValueError("missing")
+                    val = float(text)
+                    if val < 0:
+                        raise ValueError("negative")
                 except ValueError:
+                    item = self._cost_items[cost_index] if cost_index < len(self._cost_items) else {}
                     return [
-                        FlexBuilder.quick_reply_message(
-                            "請輸入數字（萬元），或按跳過。",
-                            [{"type": "postback", "label": "跳過", "data": "action=skip_cost", "displayText": "跳過"}],
+                        FlexBuilder.cost_item_prompt_flex(
+                            cost_index,
+                            item.get("name", ""),
+                            item.get("unit", ""),
+                            item.get("unit_price"),
+                            item.get("input_type", "quantity"),
                         )
                     ]
 
-            session.advance_step(ReportingStep.CONFIRM_SUBMIT.value)
-            return [
-                FlexBuilder.report_confirm_flex(self._build_report_summary(session)),
-                FlexBuilder.confirm_message("確認送出案件？", "action=submit_report", "action=cancel"),
-            ]
+                if cost_index < len(self._cost_items):
+                    item = self._cost_items[cost_index]
+                    if item["input_type"] == "quantity":
+                        amount = val * (item.get("unit_price") or 0)
+                        cost_items_data.append(
+                            {
+                                "item_id": item["id"],
+                                "item_name": item["name"],
+                                "unit": item["unit"],
+                                "unit_price": item.get("unit_price"),
+                                "quantity": val,
+                                "amount": amount,
+                            }
+                        )
+                    else:
+                        cost_items_data.append(
+                            {
+                                "item_id": item["id"],
+                                "item_name": item["name"],
+                                "unit": item["unit"],
+                                "unit_price": None,
+                                "quantity": None,
+                                "amount": val,
+                            }
+                        )
+                    session.store_data("cost_items", cost_items_data)
+                    cost_index += 1
+                    session.store_data("cost_current_index", cost_index)
+
+            if cost_index >= len(self._cost_items):
+                total = sum(ci.get("amount", 0) or 0 for ci in cost_items_data)
+                return [FlexBuilder.cost_summary_flex(cost_items_data, total)]
+
+            item = self._cost_items[cost_index]
+            return [FlexBuilder.cost_item_prompt_flex(cost_index, item["name"], item["unit"], item.get("unit_price"), item["input_type"])]
+
+        if step == ReportingStep.DISASTER_TYPE.value:
+            if action == "select_disaster_type":
+                value = payload.get("value", "")
+                if value in ("一般", "專案"):
+                    session.store_data("disaster_type", value)
+                    session.advance_step(ReportingStep.PROCESSING_TYPE.value)
+                    return [FlexBuilder.processing_type_select_flex()]
+            return [FlexBuilder.disaster_type_select_flex()]
+
+        if step == ReportingStep.PROCESSING_TYPE.value:
+            if action == "select_processing_type":
+                value = payload.get("value", "")
+                if value in ("搶修", "復建"):
+                    session.store_data("processing_type", value)
+                    prefill = self._extract_repeat_disaster_prefill(session)
+                    session.advance_step(ReportingStep.REPEAT_DISASTER.value)
+                    return [FlexBuilder.repeat_disaster_select_flex(prefill=prefill)]
+            return [FlexBuilder.processing_type_select_flex()]
+
+        if step == ReportingStep.REPEAT_DISASTER.value:
+            if action == "select_repeat_disaster":
+                value = payload.get("value", "")
+                if value == "否":
+                    session.store_data("repeat_disaster", value)
+                    session.store_data("repeat_disaster_year", "")
+                    prefill = self._extract_original_protection_prefill(session)
+                    session.advance_step(ReportingStep.ORIGINAL_PROTECTION.value)
+                    return [FlexBuilder.original_protection_select_flex(prefill=prefill)]
+                if value == "是":
+                    session.store_data("repeat_disaster", value)
+                    return [FlexBuilder.repeat_disaster_year_input_flex()]
+            if session.get_data("repeat_disaster") == "是" and text:
+                session.store_data("repeat_disaster_year", text)
+                prefill = self._extract_original_protection_prefill(session)
+                session.advance_step(ReportingStep.ORIGINAL_PROTECTION.value)
+                return [FlexBuilder.original_protection_select_flex(prefill=prefill)]
+            prefill = self._extract_repeat_disaster_prefill(session)
+            return [FlexBuilder.repeat_disaster_select_flex(prefill=prefill)]
+
+        if step == ReportingStep.ORIGINAL_PROTECTION.value:
+            if action == "select_original_protection":
+                value = payload.get("value", "")
+                if value:
+                    session.store_data("original_protection", value)
+                    session.advance_step(ReportingStep.ANALYSIS_REVIEW.value)
+                    return [FlexBuilder.text_input_with_skip_flex(
+                        "分析與檢討",
+                        "請輸入災害分析與檢討說明：",
+                        "skip_analysis_review",
+                    )]
+            prefill = self._extract_original_protection_prefill(session)
+            return [FlexBuilder.original_protection_select_flex(prefill=prefill)]
+
+        if step == ReportingStep.ANALYSIS_REVIEW.value:
+            if action == "skip_analysis_review":
+                session.store_data("analysis_review", "")
+                session.advance_step(ReportingStep.DESIGN_DOCS.value)
+                return [FlexBuilder.file_upload_with_skip_flex(
+                    "設計圖說",
+                    "如有設計圖說請上傳 PDF 檔案：",
+                    "skip_design_docs",
+                )]
+            if text:
+                session.store_data("analysis_review", text)
+                session.advance_step(ReportingStep.DESIGN_DOCS.value)
+                return [FlexBuilder.file_upload_with_skip_flex(
+                    "設計圖說",
+                    "如有設計圖說請上傳 PDF 檔案：",
+                    "skip_design_docs",
+                )]
+            return [FlexBuilder.text_input_with_skip_flex(
+                "分析與檢討",
+                "請輸入災害分析與檢討說明：",
+                "skip_analysis_review",
+            )]
+
+        if step == ReportingStep.DESIGN_DOCS.value:
+            if action == "skip_design_docs":
+                session.store_data("design_doc_evidence_id", "")
+                session.advance_step(ReportingStep.SOIL_CONSERVATION.value)
+                return [FlexBuilder.soil_conservation_select_flex()]
+            # _handle_reporting currently only receives image_content bytes; generic file/PDF bytes are not available yet.
+            return [FlexBuilder.file_upload_with_skip_flex(
+                "設計圖說",
+                "如有設計圖說請上傳 PDF 檔案：",
+                "skip_design_docs",
+            )]
+
+        if step == ReportingStep.SOIL_CONSERVATION.value:
+            if action == "select_soil_conservation":
+                value = payload.get("value", "")
+                if value:
+                    session.store_data("soil_conservation", value)
+                    session.advance_step(ReportingStep.SAFETY_ASSESSMENT.value)
+                    return [FlexBuilder.text_input_with_skip_flex(
+                        "整體安全評估",
+                        "請輸入整體安全評估說明：",
+                        "skip_safety_assessment",
+                    )]
+            return [FlexBuilder.soil_conservation_select_flex()]
+
+        if step == ReportingStep.SAFETY_ASSESSMENT.value:
+            if action == "skip_safety_assessment":
+                session.store_data("safety_assessment", "")
+                hazard_items = self._extract_hazard_items(session)
+                session.store_data("hazard_summary", hazard_items)
+                session.advance_step(ReportingStep.HAZARD_IDENTIFICATION.value)
+                return [FlexBuilder.hazard_summary_flex(hazard_items, "skip_hazard")]
+            if text:
+                session.store_data("safety_assessment", text)
+                hazard_items = self._extract_hazard_items(session)
+                session.store_data("hazard_summary", hazard_items)
+                session.advance_step(ReportingStep.HAZARD_IDENTIFICATION.value)
+                return [FlexBuilder.hazard_summary_flex(hazard_items, "skip_hazard")]
+            return [FlexBuilder.text_input_with_skip_flex(
+                "整體安全評估",
+                "請輸入整體安全評估說明：",
+                "skip_safety_assessment",
+            )]
+
+        if step == ReportingStep.HAZARD_IDENTIFICATION.value:
+            if action == "hazard_confirm":
+                session.store_data("hazard_supplement", "")
+                session.advance_step(ReportingStep.OTHER_SUPPLEMENT.value)
+                return [FlexBuilder.text_input_with_skip_flex(
+                    "其他補充事項",
+                    "如有其他補充事項請輸入，或按略過：",
+                    "skip_other_supplement",
+                )]
+            if action == "skip_hazard":
+                session.store_data("hazard_supplement", "")
+                session.advance_step(ReportingStep.OTHER_SUPPLEMENT.value)
+                return [FlexBuilder.text_input_with_skip_flex(
+                    "其他補充事項",
+                    "如有其他補充事項請輸入，或按略過：",
+                    "skip_other_supplement",
+                )]
+            if text:
+                session.store_data("hazard_supplement", text)
+                session.advance_step(ReportingStep.OTHER_SUPPLEMENT.value)
+                return [FlexBuilder.text_input_with_skip_flex(
+                    "其他補充事項",
+                    "如有其他補充事項請輸入，或按略過：",
+                    "skip_other_supplement",
+                )]
+            hazard_items = session.get_data("hazard_summary", [])
+            return [FlexBuilder.hazard_summary_flex(hazard_items, "skip_hazard")]
+
+        if step == ReportingStep.OTHER_SUPPLEMENT.value:
+            if action == "skip_other_supplement":
+                session.store_data("other_supplement", "")
+                session.advance_step(ReportingStep.CONFIRM_SUBMIT.value)
+                return [
+                    FlexBuilder.report_confirm_flex(self._build_report_summary(session)),
+                    FlexBuilder.confirm_message("確認送出案件？", "action=submit_report", "action=cancel"),
+                ]
+            if text:
+                session.store_data("other_supplement", text)
+                session.advance_step(ReportingStep.CONFIRM_SUBMIT.value)
+                return [
+                    FlexBuilder.report_confirm_flex(self._build_report_summary(session)),
+                    FlexBuilder.confirm_message("確認送出案件？", "action=submit_report", "action=cancel"),
+                ]
+            return [FlexBuilder.text_input_with_skip_flex(
+                "其他補充事項",
+                "如有其他補充事項請輸入，或按略過：",
+                "skip_other_supplement",
+            )]
 
         if step == ReportingStep.CONFIRM_SUBMIT.value:
             if action != "submit_report":
@@ -765,9 +1270,59 @@ class LineFlowController:
                 return [FlexBuilder.text_message("案件送出失敗，請稍後再試。")]
 
             await self._notify.notify_managers(f"新案件待審核：{case.case_id}（{case.district_name} {case.road_number}）")
-            session.advance_step(ReportingStep.DONE.value)
-            session.reset()
-            return [FlexBuilder.text_message(f"案件已成功送出，案件編號：{case.case_id}")]
+            session.advance_step(ReportingStep.GENERATE_WORD.value)
+            return [
+                FlexBuilder.text_message(f"✅ 案件已成功送出，案件編號：{case.case_id}"),
+                FlexBuilder.word_report_prompt_flex(),
+                FlexBuilder.quick_action_card("report_done", is_manager=bool(user and user.is_manager)),
+            ]
+
+        if step == ReportingStep.GENERATE_WORD.value:
+            case_id = session.draft_case_id
+            if action == "skip_word":
+                session.advance_step(ReportingStep.DONE.value)
+                session.reset()
+                return [FlexBuilder.text_message("好的，如需產生報告可隨時在案件查詢中操作。"), FlexBuilder.quick_action_card("word_done", is_manager=bool(user and user.is_manager))]
+
+            if action == "generate_word":
+                if not case_id:
+                    session.advance_step(ReportingStep.DONE.value)
+                    session.reset()
+                    return [FlexBuilder.text_message("案件不存在，無法產生報告。")]
+
+                case = self._cases.get_case(case_id)
+                if case is None:
+                    session.advance_step(ReportingStep.DONE.value)
+                    session.reset()
+                    return [FlexBuilder.text_message("案件資料讀取失敗。")]
+
+                try:
+                    from app.services.word_generator import WordGenerator
+                    gen = WordGenerator(cases_dir=self._settings.cases_dir)
+                    manifest = self._evidence.get_manifest(case_id)
+                    doc_bytes = gen.generate(case=case, manifest=manifest)
+
+                    # 存檔
+                    report_dir = self._settings.cases_dir / case_id
+                    report_dir.mkdir(parents=True, exist_ok=True)
+                    report_path = report_dir / "report.docx"
+                    report_path.write_bytes(doc_bytes)
+
+                    # 完成度
+                    completeness = WordGenerator.calculate_completeness(case)
+                    download_url = f"{self._settings.app_base_url}/api/cases/{case_id}/word"
+
+                    session.advance_step(ReportingStep.DONE.value)
+                    session.reset()
+                    return [FlexBuilder.word_report_result_flex(completeness, download_url), FlexBuilder.quick_action_card("word_done", is_manager=bool(user and user.is_manager))]
+
+                except Exception as exc:
+                    logger.error("Word 報告產生失敗: case_id=%s, error=%s", case_id, exc)
+                    session.advance_step(ReportingStep.DONE.value)
+                    session.reset()
+                    return [FlexBuilder.text_message(f"報告產生失敗：{exc}"), FlexBuilder.quick_action_card("general", is_manager=bool(user and user.is_manager))]
+
+            return [FlexBuilder.word_report_prompt_flex()]
 
         if step == ReportingStep.ANNOTATE_PHOTOS.value:
             session.step = ReportingStep.UPLOAD_PHOTOS.value
@@ -817,21 +1372,36 @@ class LineFlowController:
     ) -> list[dict]:
         if not user:
             session.reset()
-            return [FlexBuilder.text_message("尚未註冊，請先完成註冊。")]
+            return [FlexBuilder.text_message("尚未註冊，請先完成註冊。" + HINT_MENU)]
 
         action = payload.get("action", "")
+        if action == "open_case":
+            case = self._cases.get_case(payload.get("case_id", ""))
+            if not case:
+                return [FlexBuilder.text_message("案件不存在。")]
+            if user.role == UserRole.USER:
+                creator_id = case.created_by.user_id if case.created_by else ""
+                if creator_id != source_key:
+                    return [FlexBuilder.text_message("您無權查看此案件。")]
+            return [
+                FlexBuilder.case_detail_flex(
+                    self._case_to_detail_dict(case),
+                    include_review_actions=bool(user and user.is_manager),
+                )
+            ]
+
         if user.role == UserRole.USER:
             cases = self._cases.get_cases_by_user(source_key)
             cards = [self._case_to_card_dict(case) for case in cases]
             session.reset()
-            return [FlexBuilder.case_list_carousel(cards)]
+            return [FlexBuilder.case_list_carousel(cards), FlexBuilder.quick_action_card("query_done", is_manager=False)]
 
         if action == "query_filter_district":
             district_id = payload.get("district_id", "")
             cases = self._cases.get_cases_by_district(district_id)
             cards = [self._case_to_card_dict(case) for case in cases]
             session.reset()
-            return [FlexBuilder.case_list_carousel(cards)]
+            return [FlexBuilder.case_list_carousel(cards), FlexBuilder.quick_action_card("query_done", is_manager=bool(user and user.is_manager))]
 
         if action == "query_filter_status":
             status = payload.get("status", "")
@@ -844,7 +1414,7 @@ class LineFlowController:
                 cases = [c for c in district_cases if c.review_status.value == status]
             cards = [self._case_to_card_dict(case) for case in cases]
             session.reset()
-            return [FlexBuilder.case_list_carousel(cards)]
+            return [FlexBuilder.case_list_carousel(cards), FlexBuilder.quick_action_card("query_done", is_manager=bool(user and user.is_manager))]
 
         district_items = [
             {
@@ -866,6 +1436,177 @@ class LineFlowController:
             FlexBuilder.quick_reply_message("或依狀態篩選：", status_items),
         ]
 
+
+    # ── Profile helpers ─────────────────────────────────────────────
+
+    def _build_profile_message(self, user) -> dict:
+        """Build profile Flex with action buttons appropriate for user status."""
+        role_name = "決策人員" if user.role == UserRole.MANAGER else "使用者人員"
+        status_name = {
+            UserStatus.PENDING: "待審核",
+            UserStatus.ACTIVE: "啟用中",
+            UserStatus.REJECTED: "已退件",
+            UserStatus.SUSPENDED: "停用",
+        }.get(user.status, user.status.value)
+        return FlexBuilder.profile_flex({
+            "real_name": user.real_name,
+            "display_name": user.display_name,
+            "role_name": role_name,
+            "status_name": status_name,
+            "status": user.status.value,
+            "district_name": user.district_name,
+        })
+
+    async def _handle_profile(
+        self,
+        session: LineSession,
+        source_key: str,
+        user,
+        display_name: str,
+        text: str,
+        payload: dict[str, str],
+    ) -> list[dict]:
+        """Handle profile view / edit / reapply flow."""
+        action = payload.get("action", "")
+        step = session.step
+
+        # ── Entry: edit_profile from IDLE ──
+        if action == "edit_profile":
+            session.start_flow(FlowType.PROFILE, ProfileStep.MENU.value)
+            # Store current values so user can selectively change
+            session.store_data("edit_real_name", user.real_name)
+            session.store_data("edit_role", user.role.value)
+            session.store_data("edit_district_id", user.district_id)
+            session.store_data("edit_district_name", user.district_name)
+            items = [
+                {"type": "postback", "label": "姓名", "data": _postback_data("edit_real_name"), "displayText": "修改姓名"},
+                {"type": "postback", "label": "角色", "data": _postback_data("edit_role"), "displayText": "修改角色"},
+                {"type": "postback", "label": "工務段", "data": _postback_data("edit_district"), "displayText": "修改工務段"},
+            ]
+            return [FlexBuilder.quick_reply_message("請選擇要修改的項目：" + HINT_CANCEL_BACK, items)]
+
+        # ── Entry: reapply from IDLE ──
+        if action == "reapply":
+            if user.status not in (UserStatus.REJECTED, UserStatus.SUSPENDED):
+                return [FlexBuilder.text_message("您的帳號狀態無法執行再次申請。")]
+            session.start_flow(FlowType.PROFILE, ProfileStep.CONFIRM_REAPPLY.value)
+            return [
+                FlexBuilder.text_message(
+                    f"您即將重新申請開通帳號：\n"
+                    f"姓名：{user.real_name}\n"
+                    f"角色：{'決策人員' if user.role == UserRole.MANAGER else '使用者人員'}\n"
+                    f"工務段：{user.district_name}\n"
+                    f"\n送出後將等待審核人員確認。"
+                ),
+                FlexBuilder.confirm_message("確認再次申請？", "action=confirm_reapply", "action=cancel"),
+            ]
+
+        # ── Confirm reapply ──
+        if step == ProfileStep.CONFIRM_REAPPLY.value:
+            if action != "confirm_reapply":
+                return [FlexBuilder.text_message("請按下確認或取消。")]
+            updated = self._users.reapply(source_key)
+            if not updated:
+                session.reset()
+                return [FlexBuilder.text_message("申請失敗，請稍後再試。")]
+            await self._notify.notify_managers(f"使用者重新申請開通：{updated.real_name} ({updated.user_id})")
+            logger.info("User %s reapplied", source_key)
+            session.reset()
+            return [FlexBuilder.text_message("已送出重新申請，請等待審核人員確認。" + HINT_MENU)]
+
+        # ── Edit: ask real name ──
+        if action == "edit_real_name" or step == ProfileStep.EDIT_REAL_NAME.value:
+            if step != ProfileStep.EDIT_REAL_NAME.value:
+                # First entry — ask for new name
+                session.advance_step(ProfileStep.EDIT_REAL_NAME.value)
+                return [FlexBuilder.text_message(f"目前姓名：{user.real_name}\n請輸入新的姓名：" + HINT_CANCEL_BACK)]
+            # Received text input
+            if not text:
+                return [FlexBuilder.text_message("請輸入新的姓名。")]
+            session.store_data("edit_real_name", text)
+            session.advance_step(ProfileStep.CONFIRM_EDIT.value)
+            return self._profile_edit_confirm(session, user)
+
+        # ── Edit: ask role ──
+        if action == "edit_role":
+            session.advance_step(ProfileStep.EDIT_ROLE.value)
+            return [
+                FlexBuilder.quick_reply_message(
+                    "請選擇新的角色：" + HINT_CANCEL_BACK,
+                    [
+                        {"type": "postback", "label": "使用者人員", "data": "action=set_role&role=user", "displayText": "使用者人員"},
+                        {"type": "postback", "label": "決策人員", "data": "action=set_role&role=manager", "displayText": "決策人員"},
+                    ],
+                )
+            ]
+
+        if action == "set_role":
+            role_value = payload.get("role", "")
+            if role_value not in ("user", "manager"):
+                return [FlexBuilder.text_message("請使用按鈕選擇角色。")]
+            session.store_data("edit_role", role_value)
+            session.advance_step(ProfileStep.CONFIRM_EDIT.value)
+            return self._profile_edit_confirm(session, user)
+
+        # ── Edit: ask district ──
+        if action == "edit_district":
+            session.advance_step(ProfileStep.EDIT_DISTRICT.value)
+            return [FlexBuilder.district_quick_reply()]
+
+        if action == "select_district" and step == ProfileStep.EDIT_DISTRICT.value:
+            district_id = payload.get("district_id", "")
+            district = self._district_by_id(district_id)
+            if not district:
+                return [FlexBuilder.text_message("請使用按鈕選擇工務段。"), FlexBuilder.district_quick_reply()]
+            session.store_data("edit_district_id", district["id"])
+            session.store_data("edit_district_name", district["name"])
+            session.advance_step(ProfileStep.CONFIRM_EDIT.value)
+            return self._profile_edit_confirm(session, user)
+
+        # ── Confirm edit ──
+        if step == ProfileStep.CONFIRM_EDIT.value:
+            if action != "confirm_edit_profile":
+                return [FlexBuilder.text_message("請按下確認或取消。")]
+            new_name = session.get_data("edit_real_name") or None
+            new_role_str = session.get_data("edit_role") or None
+            new_role = UserRole(new_role_str) if new_role_str else None
+            new_district_id = session.get_data("edit_district_id") or None
+            new_district_name = session.get_data("edit_district_name") or None
+            updated = self._users.update_profile(
+                source_key,
+                real_name=new_name,
+                role=new_role,
+                district_id=new_district_id,
+                district_name=new_district_name,
+            )
+            if not updated:
+                session.reset()
+                return [FlexBuilder.text_message("更新失敗，請稍後再試。")]
+            await self._notify.notify_managers(f"使用者更新個人資訊（待重新審核）：{updated.real_name} ({updated.user_id})")
+            logger.info("User %s profile updated, pending re-approval", source_key)
+            session.reset()
+            return [FlexBuilder.text_message("個人資訊已更新，帳號將重新等待審核人員確認後開通。" + HINT_MENU)]
+
+        return [FlexBuilder.text_message("請使用按鈕操作。")]
+
+    def _profile_edit_confirm(self, session: LineSession, user) -> list[dict]:
+        """Show summary of profile changes and ask for confirmation."""
+        new_name = session.get_data("edit_real_name", user.real_name)
+        new_role = session.get_data("edit_role", user.role.value)
+        new_district = session.get_data("edit_district_name", user.district_name)
+        role_label = "決策人員" if new_role == "manager" else "使用者人員"
+        summary = (
+            f"確認更新內容：\n"
+            f"姓名：{new_name}\n"
+            f"角色：{role_label}\n"
+            f"工務段：{new_district}\n"
+            f"\nℹ️ 更新後帳號將重新等待審核確認。"
+        )
+        return [
+            FlexBuilder.text_message(summary),
+            FlexBuilder.confirm_message("確認送出更新？", "action=confirm_edit_profile", "action=cancel"),
+        ]
+
     async def _handle_management(
         self,
         session: LineSession,
@@ -876,7 +1617,7 @@ class LineFlowController:
     ) -> list[dict]:
         if not user or not user.is_manager:
             session.reset()
-            return [FlexBuilder.text_message("僅決策人員可使用審核功能。")]
+            return [FlexBuilder.text_message("僅決策人員可使用審核功能。" + HINT_MENU)]
 
         action = payload.get("action", "")
         if action == "open_case":
@@ -917,9 +1658,64 @@ class LineFlowController:
             await self._notify.notify_user(updated.created_by.user_id if updated.created_by else "", f"您的案件 {case_id} 已退回，原因：{text}")
             return [FlexBuilder.text_message(f"案件 {case_id} 已退回。")]
 
-        pending = self._cases.get_pending_cases()
-        cards = [self._case_to_card_dict(case) for case in pending]
-        return [FlexBuilder.case_list_carousel(cards)]
+        # ── 案件審核 ──
+        if action == "mgmt_cases":
+            pending = self._cases.get_pending_cases()
+            cards = [self._case_to_card_dict(case) for case in pending]
+            return [FlexBuilder.case_list_carousel(cards)]
+
+        # ── 人員管理：待審核人員列表 ──
+        if action == "mgmt_users":
+            pending_users = self._users.list_pending()
+            return [FlexBuilder.pending_users_carousel(pending_users)]
+
+        # ── 核准使用者 ──
+        if action == "approve_user":
+            target_uid = payload.get("user_id", "")
+            approved = self._users.approve(target_uid, user.real_name or user.display_name)
+            if not approved:
+                return [FlexBuilder.text_message("核准失敗，使用者不存在。")]
+            await self._notify.notify_user(target_uid, f"您的帳號已通過審核，歡迎使用系統。")
+            logger.info("User %s approved by %s", target_uid, source_key)
+            return [FlexBuilder.text_message(f"已核准使用者：{approved.real_name}（{approved.district_name}）"), FlexBuilder.quick_action_card("review_done", is_manager=True)]
+
+        # ── 退件使用者 ──
+        if action == "reject_user":
+            target_uid = payload.get("user_id", "")
+            rejected = self._users.reject(target_uid)
+            if not rejected:
+                return [FlexBuilder.text_message("退件失敗，使用者不存在。")]
+            await self._notify.notify_user(target_uid, "您的帳號申請已被退件，如有疑問請聯繫管理人員。")
+            logger.info("User %s rejected by %s", target_uid, source_key)
+            return [FlexBuilder.text_message(f"已退件使用者：{rejected.real_name}"), FlexBuilder.quick_action_card("review_done", is_manager=True)]
+
+        # ── 預設：顯示審核待辦子選單（含計數）──
+        pending_case_count = len(self._cases.get_pending_cases())
+        pending_user_count = len(self._users.list_pending())
+        menu_items = [
+            {
+                "type": "postback",
+                "label": f"📋 案件審核 ({pending_case_count})",
+                "data": "action=mgmt_cases",
+                "displayText": "案件審核",
+            },
+            {
+                "type": "postback",
+                "label": f"👤 人員系統申請審核 ({pending_user_count})",
+                "data": "action=mgmt_users",
+                "displayText": "人員系統申請審核",
+            },
+        ]
+        # Add web management link with HMAC token
+        settings = get_settings()
+        admin_token = generate_admin_token(source_key, settings.line_channel_secret)
+        admin_url = f"{settings.app_base_url}/webgis/admin.html?token={admin_token}"
+        menu_items.append({
+            "type": "uri",
+            "label": "📋 人員管理列表",
+            "uri": admin_url,
+        })
+        return [FlexBuilder.quick_reply_message("請選擇審核類別：", menu_items)]
 
     def _handle_back(self, session: LineSession) -> list[dict]:
         if session.flow == FlowType.REPORTING:
@@ -967,6 +1763,12 @@ class LineFlowController:
                         )
                     ]
 
+                if sub_step == GuidedPhotoSubStep.AWAITING_UPLOAD.value and session.get_data("guided_phase") in ("optional", "supplement"):
+                    session.set_sub_step(GuidedPhotoSubStep.CHOOSE_OPTIONAL.value)
+                    annotations = session.get_data("photo_annotations", {})
+                    uploaded_types = [item.get("photo_type", "") for item in annotations.values() if item.get("photo_type")]
+                    return [FlexBuilder.optional_photo_chooser(uploaded_types, disaster_type)]
+
                 if sub_step == GuidedPhotoSubStep.AWAITING_UPLOAD.value and guided_step > 0:
                     return [FlexBuilder.guided_photo_prompt(len(session.get_data("uploaded_evidence", [])) + 1, guided_photo_type, photo_name, photo_desc)]
 
@@ -977,12 +1779,26 @@ class LineFlowController:
                 ReportingStep.SELECT_ROAD.value,
                 ReportingStep.INPUT_COORDINATES.value,
                 ReportingStep.CONFIRM_MILEPOST.value,
+                ReportingStep.CONFIRM_GEO_INFO.value,
+                ReportingStep.PROJECT_NAME.value,
+                ReportingStep.DISASTER_DATE.value,
+                ReportingStep.NEARBY_LANDMARK.value,
                 ReportingStep.SELECT_DAMAGE_MODE.value,
                 ReportingStep.SELECT_DAMAGE_CAUSE.value,
                 ReportingStep.INPUT_DESCRIPTION.value,
                 ReportingStep.UPLOAD_PHOTOS.value,
                 ReportingStep.SITE_SURVEY.value,
                 ReportingStep.ESTIMATED_COST.value,
+                ReportingStep.DISASTER_TYPE.value,
+                ReportingStep.PROCESSING_TYPE.value,
+                ReportingStep.REPEAT_DISASTER.value,
+                ReportingStep.ORIGINAL_PROTECTION.value,
+                ReportingStep.ANALYSIS_REVIEW.value,
+                ReportingStep.DESIGN_DOCS.value,
+                ReportingStep.SOIL_CONSERVATION.value,
+                ReportingStep.SAFETY_ASSESSMENT.value,
+                ReportingStep.HAZARD_IDENTIFICATION.value,
+                ReportingStep.OTHER_SUPPLEMENT.value,
                 ReportingStep.CONFIRM_SUBMIT.value,
             ]
             if session.step in order and order.index(session.step) > 0:
@@ -1036,18 +1852,94 @@ class LineFlowController:
             section = data.get(key, {})
             if photo_type in section:
                 return section[photo_type]
+        # Check optional section (P5-P10)
+        optional_section = data.get("optional", {})
+        if photo_type in optional_section:
+            return optional_section[photo_type]
         return {}
 
     def _photo_type_prompt(self, photo_type: str, photo_name: str) -> str:
         """Generate contextual prompt for photo upload based on type."""
         prompts = {
             "P1": "記錄災點整體環境與現場概況。",
-            "P2": "拍攝災損構造物近照，清楚呈現損壞細節。",
-            "P3": "記錄道路路面狀況與影響範圍。",
-            "P4": "拍攝邊坡整體型態與植被狀況。",
+            "P2": "拍攝邊坡整體型態、崩塌範圍與既有保護設施。",
+            "P3": "拍攝目前會再致災的邊坡細節，清楚呈現損壞狀況。",
+            "P4": "記錄道路路面狀況與影響範圍。",
+            "P5": "拍攝現場排水溝、涵管、截水溝等排水設施現況。",
+            "P6": "拍攝災點鄰近的擋土牆、護欄、橋梁等構造物。",
+            "P7": "拍攝可見地層、岩層露頭、土壤剖面等地質特徵。",
+            "P8": "拍攝現場交通管制措施、封路狀況、替代道路。",
+            "P9": "拍攝該地點過去災損痕跡或修復工程現況。",
+            "P10": "其他需要記錄的現場狀況或細節補充。",
         }
         return prompts.get(photo_type, f"請上傳 {photo_name} 照片。")
 
+    # Mapping from P1 site_risks tag IDs to site_survey item_ids
+    _SITE_RISK_TO_SURVEY: dict[str, str] = {
+        "upslope_rockfall": "upslope_rockfall",
+        "collapse_sign": "upslope_collapse",
+        "subgrade_gap": "downslope_subgrade_gap",
+        "subsidence": "downslope_settlement",
+        "pothole": "structure_pothole",
+        "guardrail_damage": "structure_guardrail",
+        "utility_pole_tilt": "structure_utility_pole",
+        "hazard_tree": "structure_dangerous_tree",
+        "riverside_work": "bridge_river_adjacent",
+        "meander_attack": "bridge_river_meander_erosion",
+        "rebar_exposed": "structure_rebar_exposed",
+    }
+    # Mapping from P1 weather tag IDs to site_survey item_ids
+    _WEATHER_TO_SURVEY: dict[str, str] = {
+        "sunny": "other_weather",
+        "cloudy": "other_weather",
+        "overcast": "other_weather",
+        "light_rain": "other_weather",
+        "heavy_rain": "other_weather",
+        "torrential_rain": "other_weather",
+        "fog": "other_weather",
+        "typhoon": "other_weather",
+    }
+    _SNOW_WEATHER_IDS: set[str] = {"snow", "ice"}
+
+    # Mapping from P2 visible_damage tag IDs to site_survey item_ids
+    _VISIBLE_DAMAGE_TO_SURVEY: dict[str, str] = {
+        "debris_avalanche": "upslope_collapse",
+        "rock_mass_slide": "upslope_collapse",
+        "debris_flow": "upslope_collapse",
+        "hanging_rock": "upslope_rockfall",
+        "isolated_rock_pile": "upslope_rockfall",
+    }
+    # Mapping from P4 collapse_type tag IDs to site_survey item_ids
+    _COLLAPSE_TYPE_TO_SURVEY: dict[str, str] = {
+        "rockfall": "upslope_rockfall",
+        "debris_avalanche": "upslope_collapse",
+        "rock_mass_slide": "upslope_collapse",
+        "debris_flow": "upslope_collapse",
+    }
+
+    def _auto_fill_site_survey(self, session: LineSession) -> list[str]:
+        """Auto-fill site_survey_selected from photo annotations (site_risks, weather, visible_damage)."""
+        annotations = session.get_data("photo_annotations", {})
+        selected: list[str] = []
+        seen: set[str] = set()
+        for _idx, ann in annotations.items():
+            for tag in ann.get("tags", []):
+                category = tag.get("category", "")
+                tag_id = tag.get("id", "")
+                survey_id: str | None = None
+                if category == "site_risks":
+                    survey_id = self._SITE_RISK_TO_SURVEY.get(tag_id)
+                elif category == "weather":
+                    survey_id = self._WEATHER_TO_SURVEY.get(tag_id)
+                elif category == "visible_damage":
+                    survey_id = self._VISIBLE_DAMAGE_TO_SURVEY.get(tag_id)
+                elif category == "collapse_type":
+                    survey_id = self._COLLAPSE_TYPE_TO_SURVEY.get(tag_id)
+                if survey_id and survey_id not in seen:
+                    seen.add(survey_id)
+                    selected.append(survey_id)
+        session.store_data("site_survey_selected", selected)
+        return selected
     def _site_survey_quick_reply(self, selected: list[str]) -> dict:
         items = []
         for category in self._site_survey:
@@ -1161,6 +2053,19 @@ class LineFlowController:
                 exclusion_tags=exclusion_tags,
             )
 
+        # ── P4 地質概估：帶入地質查詢結果作為參考 ──────────────
+        geology_hint: str | None = None
+        if category_id == "geology_estimate" and self._geology is not None:
+            coords = session.get_data("coordinates", {})
+            lat = coords.get("lat")
+            lon = coords.get("lon")
+            if lat is not None and lon is not None:
+                try:
+                    result = self._geology.query_all(lon=lon, lat=lat)
+                    geology_hint = self._geology.to_display_text(result)
+                except Exception:
+                    geology_hint = None
+
         return FlexBuilder.tag_multi_select_flex(
             category_name=category_name,
             tags=tags,
@@ -1171,6 +2076,8 @@ class LineFlowController:
             current_index=idx + 1,
             total_count=len(categories),
             source=source,
+            geology_hint=geology_hint,
+            multi_select=category.get("multi_select", True),
         )
 
     def _toggle_tag(self, session: LineSession, category_id: str, tag_id: str, is_exclusion: bool = False, force_set: bool = False) -> None:
@@ -1243,6 +2150,15 @@ class LineFlowController:
         if not evidence_id:
             return
 
+        photo_type = summary.get("photo_type", "")
+        if photo_type:
+            self._evidence.update_photo_type(
+                case_id,
+                evidence_id,
+                photo_type,
+                summary.get("photo_type_name", "") or None,
+            )
+
         annotations_data = {
             "tags": [
                 {
@@ -1260,17 +2176,37 @@ class LineFlowController:
     def _build_report_summary(self, session: LineSession) -> dict:
         coordinates = session.get_data("coordinates", {})
         milepost = session.get_data("milepost", {})
+        cost_items_data = session.get_data("cost_items", [])
+        total = sum(ci.get("amount", 0) or 0 for ci in cost_items_data)
         cost = session.get_data("estimated_cost", None)
         return {
             "district_name": session.get_data("district_name", ""),
             "road": session.get_data("road", ""),
             "coordinates_text": f"{coordinates.get('lat', '-')},{coordinates.get('lon', '-')}" if coordinates else "-",
             "milepost_display": milepost.get("milepost_display", "-"),
+            "county_name": session.get_data("county_name", ""),
+            "town_name": session.get_data("town_name", ""),
+            "village_name": session.get_data("village_name", ""),
+            "national_park": session.get_data("national_park", ""),
+            "project_name": session.get_data("project_name", ""),
+            "disaster_date": session.get_data("disaster_date", ""),
+            "nearby_landmark": session.get_data("nearby_landmark", ""),
             "damage_mode_name": session.get_data("damage_mode_name", ""),
             "damage_cause_names": session.get_data("damage_cause_names", []),
             "description": session.get_data("description", ""),
             "photo_count": session.get_data("photo_count", 0),
-            "estimated_cost_text": "未填" if cost is None else f"{cost:.1f} 萬元",
+            "estimated_cost_text": "未填" if (cost is None and total == 0) else f"{total:,.0f}元 ({total/10000:.1f}萬元)" if total > 0 else "未填",
+            "disaster_type": session.get_data("disaster_type", ""),
+            "processing_type": session.get_data("processing_type", ""),
+            "repeat_disaster": session.get_data("repeat_disaster", ""),
+            "repeat_disaster_year": session.get_data("repeat_disaster_year", ""),
+            "original_protection": session.get_data("original_protection", ""),
+            "analysis_review": session.get_data("analysis_review", ""),
+            "design_doc_uploaded": bool(session.get_data("design_doc_evidence_id", "")),
+            "soil_conservation": session.get_data("soil_conservation", ""),
+            "safety_assessment": session.get_data("safety_assessment", ""),
+            "hazard_summary_text": "、".join(session.get_data("hazard_summary", [])) or "",
+            "other_supplement": session.get_data("other_supplement", ""),
         }
 
     def _apply_session_to_case(self, case: Case, session: LineSession, user_id: str, display_name: str, real_name: str) -> None:
@@ -1288,7 +2224,20 @@ class LineFlowController:
         case.damage_cause_names = session.get_data("damage_cause_names", [])
         case.description = session.get_data("description", "")
         case.estimated_cost = session.get_data("estimated_cost", None)
+        cost_items_data = session.get_data("cost_items", [])
+        case.cost_breakdown = [
+            CostBreakdownItem(
+                item_id=ci.get("item_id", ""),
+                item_name=ci.get("item_name", ""),
+                unit=ci.get("unit", ""),
+                unit_price=ci.get("unit_price"),
+                quantity=ci.get("quantity"),
+                amount=ci.get("amount"),
+            )
+            for ci in cost_items_data
+        ]
         case.photo_count = int(session.get_data("photo_count", 0))
+        case.national_park = session.get_data("national_park", "")
         case.processing_stage = ProcessingStage.PHOTOS_PROCESSED if case.photo_count > 0 else ProcessingStage.INGESTED
         case.review_status = ReviewStatus.PENDING_REVIEW
 
@@ -1302,6 +2251,29 @@ class LineFlowController:
             )
             case.coordinate_candidates = [candidate]
             case.primary_coordinate = candidate
+
+        county_name = session.get_data("county_name", "")
+        town_name = session.get_data("town_name", "")
+        village_name = session.get_data("village_name", "")
+        if self._admin_boundary is not None and case.primary_coordinate and (not town_name or not village_name):
+            try:
+                ab_result = self._admin_boundary.query(
+                    lon=case.primary_coordinate.lon,
+                    lat=case.primary_coordinate.lat,
+                )
+                if ab_result is not None:
+                    county_name = county_name or ab_result.county_name
+                    town_name = town_name or ab_result.town_name
+                    village_name = village_name or ab_result.village_name
+                    session.store_data("county_name", county_name)
+                    session.store_data("town_name", town_name)
+                    session.store_data("village_name", village_name)
+            except Exception:
+                logger.warning("Admin boundary query fallback failed for case %s", case.case_id, exc_info=True)
+
+        case.county_name = county_name
+        case.town_name = town_name
+        case.village_name = village_name
 
         # Auto-query geology info (silent, no user display)
         if self._geology is not None and case.primary_coordinate:
@@ -1362,6 +2334,101 @@ class LineFlowController:
             case.created_by.display_name = display_name
             case.created_by.real_name = real_name
 
+        # P1 auto-fill
+        from datetime import datetime as _dt
+        case.reporting_agency = "交通部公路局北區養護工程分局"
+        case.reporting_year = str(_dt.now().year - 1911)
+
+        # P1+ Word fields
+        case.project_name = session.get_data("project_name", "")
+        case.disaster_date = session.get_data("disaster_date", "")
+        case.nearby_landmark = session.get_data("nearby_landmark", "")
+
+        # P2
+        case.disaster_type = session.get_data("disaster_type", "")
+        case.processing_type = session.get_data("processing_type", "")
+        case.repeat_disaster = session.get_data("repeat_disaster", "")
+        case.repeat_disaster_year = session.get_data("repeat_disaster_year", "")
+
+        # P3
+        case.original_protection = session.get_data("original_protection", "")
+        case.analysis_review = session.get_data("analysis_review", "")
+        case.design_doc_evidence_id = session.get_data("design_doc_evidence_id", "")
+
+        # P4
+        case.soil_conservation = session.get_data("soil_conservation", "")
+        case.safety_assessment = session.get_data("safety_assessment", "")
+
+        # P5
+        case.hazard_summary = session.get_data("hazard_summary", [])
+        case.hazard_supplement = session.get_data("hazard_supplement", "")
+        case.other_supplement = session.get_data("other_supplement", "")
+
+    _PROTECTION_TAG_MAP = {
+        "gravity_wall": "重力式擋土牆",
+        "cantilever_wall": "懸臂式擋土牆",
+        "reinforced_earth": "加勁擋土牆",
+        "revetment": "護岸工",
+        "slope_protection_eng": "護坡工",
+        "ground_anchor_sys": "地錨系統",
+        "no_protection": "無保護(自然邊坡)",
+    }
+
+    def _extract_repeat_disaster_prefill(self, session: LineSession) -> str:
+        """Extract repeat_disaster pre-fill from P9 photo annotation."""
+        annotations = session.get_data("photo_annotations", {})
+        for _idx, ann in annotations.items():
+            if ann.get("photo_type") == "P9":
+                for tag in ann.get("tags", []):
+                    if tag.get("category") == "repeat_disaster":
+                        tag_id = tag.get("tag_id", "")
+                        if tag_id == "repeat_yes":
+                            return "是"
+                        elif tag_id == "repeat_no":
+                            return "否"
+        return ""
+
+    def _extract_original_protection_prefill(self, session: LineSession) -> str:
+        """Extract original_protection pre-fill from P4 photo annotation."""
+        annotations = session.get_data("photo_annotations", {})
+        for _idx, ann in annotations.items():
+            if ann.get("photo_type") == "P4":
+                for tag in ann.get("tags", []):
+                    if tag.get("category") == "original_protection":
+                        tag_id = tag.get("tag_id", "")
+                        return self._PROTECTION_TAG_MAP.get(tag_id, "")
+        return ""
+
+    def _extract_hazard_items(self, session: LineSession) -> list[str]:
+        """Extract hazard items from photo annotations and site survey for P5 auto-summary."""
+        hazard_items: list[str] = []
+        seen: set[str] = set()
+        annotations = session.get_data("photo_annotations", {})
+        hazard_categories = {
+            "site_risks",
+            "structure_hazard",
+            "traffic_risk",
+            "other_hazard",
+        }
+        for _idx, ann in annotations.items():
+            for tag in ann.get("tags", []):
+                category = tag.get("category", "")
+                if category in hazard_categories:
+                    label = tag.get("label", "")
+                    if label and label not in seen:
+                        seen.add(label)
+                        hazard_items.append(label)
+        selected_survey = set(session.get_data("site_survey_selected", []))
+        for category in self._site_survey:
+            for item in category.get("items", []):
+                item_id = item.get("item_id", "")
+                if item_id in selected_survey:
+                    label = item.get("item_name", "")
+                    if label and label not in seen:
+                        seen.add(label)
+                        hazard_items.append(label)
+        return hazard_items
+
     def _ensure_draft_case(self, session: LineSession, user_id: str, display_name: str, real_name: str) -> str | None:
         if session.draft_case_id:
             return session.draft_case_id
@@ -1393,7 +2460,7 @@ class LineFlowController:
     def _case_to_detail_dict(self, case: Case) -> dict:
         coordinate_text = "-"
         if case.primary_coordinate:
-            coordinate_text = f"{case.primary_coordinate.lat:.6f},{case.primary_coordinate.lon:.6f}"
+            coordinate_text = f"{case.primary_coordinate.lat:.4f},{case.primary_coordinate.lon:.4f}"
         milepost = case.milepost.milepost_display if case.milepost else "-"
         return {
             "case_id": case.case_id,
