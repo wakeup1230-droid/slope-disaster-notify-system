@@ -17,7 +17,9 @@ pip install -r requirements.txt
 
 # 3. 複製環境變數
 copy .env.example .env
-# 編輯 .env 填入 LINE Channel Secret / Token
+copy secrets.private.env.example secrets.private.env
+# 編輯 secrets.private.env 填入 LINE/ngrok/API 金鑰
+# .env 放非機敏設定；secrets.private.env 放機敏設定
 
 # 4. 啟動開發伺服器
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000

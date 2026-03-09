@@ -15,6 +15,25 @@ env/
 
 # Environment variables
 .env
+.env.*
+!.env.example
+secrets.private.env
+!secrets.private.env.example
+
+# Secrets and credential files
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.secrets.json
+*credentials*.json
+*secret*.txt
 
 # IDE
 .vscode/
@@ -41,6 +60,23 @@ storage/locks/
 # Logs
 *.log
 logs/
+*_log.txt
+*_output.txt
+uvicorn_stdout.txt
+uvicorn_stderr.txt
+server.log
+ngrok.log
+ngrok_out.log
+
+# Local runtime / platform artifacts
+rich_menu_ids.json
+rich_menu_*.png
+thumb_test.jpg
+nul
+
+# Generated docs and local exports
+docx_content.txt
+planning_doc_release.docx
 
 # Test coverage
 .coverage

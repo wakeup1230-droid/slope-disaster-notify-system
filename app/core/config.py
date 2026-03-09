@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     tesseract_lang: str = Field(default="chi_tra", description="Tesseract OCR language")
 
     model_config = {
-        "env_file": ".env",
+        "env_file": (".env", "secrets.private.env"),
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
     }
