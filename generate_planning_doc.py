@@ -1,9 +1,11 @@
-# pyright: reportUnknownVariableType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportGeneralTypeIssues=false
+# pyright: reportUnknownVariableType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false, reportGeneralTypeIssues=false, reportMissingTypeArgument=false
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from docx import Document
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
@@ -15,6 +17,16 @@ from docx.shared import Pt
 OUTPUT_PATH = Path(
     r"C:\Users\Sad Kevin\Desktop\邊坡災害通報與資訊整合管理系統\邊坡災害通報與資訊整合管理系統_規劃文件.docx"
 )
+
+PHOTO_TAGS_PATH = Path(__file__).resolve().parent / "app" / "data" / "photo_tags.json"
+
+CATEGORY_LAYOUT = [
+    ("common", "7.1 共用照片類型（common）"),
+    ("optional", "7.2 選用照片類型（optional）"),
+    ("revetment_retaining", "7.3 護岸/擋土牆專用照片類型（revetment_retaining）"),
+    ("road_slope", "7.4 道路邊坡專用照片類型（road_slope）"),
+    ("bridge", "7.5 橋梁專用照片類型（bridge）"),
+]
 
 
 def set_run_font(run, font_name: str = "微軟正黑體", size: int = 12, bold: bool = False) -> None:
@@ -69,22 +81,39 @@ def add_toc_placeholder(doc: Document) -> None:
     )
 
     p = doc.add_paragraph()
+    # Each fldChar / instrText / t must live inside its own w:r (run).
+    # Word rejects bare elements appended directly to w:p.
+    run_begin = OxmlElement("w:r")
     fld_begin = OxmlElement("w:fldChar")
     fld_begin.set(qn("w:fldCharType"), "begin")
+    run_begin.append(fld_begin)
+
+    run_instr = OxmlElement("w:r")
     instr = OxmlElement("w:instrText")
     instr.set(qn("xml:space"), "preserve")
-    instr.text = r'TOC \\o "1-3" \\h \\z \\u'
+    instr.text = ' TOC \\o "1-3" \\h \\z \\u '
+    run_instr.append(instr)
+
+    run_sep = OxmlElement("w:r")
     fld_sep = OxmlElement("w:fldChar")
     fld_sep.set(qn("w:fldCharType"), "separate")
+    run_sep.append(fld_sep)
+
+    run_text = OxmlElement("w:r")
     fld_text = OxmlElement("w:t")
     fld_text.text = "更新欄位後顯示目錄"
+    run_text.append(fld_text)
+
+    run_end = OxmlElement("w:r")
     fld_end = OxmlElement("w:fldChar")
     fld_end.set(qn("w:fldCharType"), "end")
-    p._p.append(fld_begin)
-    p._p.append(instr)
-    p._p.append(fld_sep)
-    p._p.append(fld_text)
-    p._p.append(fld_end)
+    run_end.append(fld_end)
+
+    p._p.append(run_begin)
+    p._p.append(run_instr)
+    p._p.append(run_sep)
+    p._p.append(run_text)
+    p._p.append(run_end)
 
 
 def add_page_break(doc: Document) -> None:
@@ -135,6 +164,12 @@ def add_cover_page(doc: Document) -> None:
         align=WD_PARAGRAPH_ALIGNMENT.CENTER,
         size=14,
     )
+    add_paragraph_with_font(
+        doc,
+        "版本：v1.1.0",
+        align=WD_PARAGRAPH_ALIGNMENT.CENTER,
+        size=14,
+    )
 
 
 def chapter_1(doc: Document) -> None:
@@ -162,10 +197,15 @@ def chapter_1(doc: Document) -> None:
     add_heading(doc, "1.3 階段範圍", 2)
     add_heading(doc, "1.3.1 Phase 1（Vibe Coding）範圍", 3)
     p1 = [
-        "LINE Bot 通報流程：工務段選擇、路線選擇、位置回報、照片上傳、描述填寫、確認送出。",
-        "FastAPI 後端：提供 webhook、案件管理、查詢、審核與對外 API。",
-        "WebGIS 示範頁：呈現案件點位、狀態與篩選條件，支援決策視覺化。",
-        "資料儲存機制：以檔案式 JSON 取代資料庫，縮短建置與部署時間。",
+        "LINE Bot 通報流程：工務段選擇、路線選擇、省道里程輸入、里程轉經緯度與地圖預覽（含微調座標機制）、地質資訊確認暫停步驟、破壞模式與致災原因選擇、工程名稱填寫、照片上傳與標註、工址環境調查、初估經費、危害程度評估、確認送出。",
+        "LINE Bot 管理功能：審核待辦（動態查詢 pending_review 案件）、核准/退回/結案操作、案件刪除與 LINE 同步通知。",
+        "LINE Bot 輔助功能：案件查詢（依狀態篩選）、統計概覽、個人檔案管理。",
+        "FastAPI 後端：LINE webhook 處理、案件生命週期管理（含刪除與稽核紀錄）、Vendor API（GET/DELETE）、Word 報表自動產生、靜態地圖產製。",
+        "WebGIS 管理平台：案件點位地圖展示、工務段與狀態篩選、聚合顯示（白色氣泡）、案件詳情面板（填報摘要、照片預覽、Word 下載）、案件刪除功能、多圖層切換（含正射影像、地質敏感區等 13 圖層）。",
+        "WebGIS 統計儀表板（stats.html）：案件數量統計、工務段分布、狀態分布等視覺化圖表。",
+        "Word 報表自動產生：依「公路災害工程內容概述表」空白範本自動填入案件資料、位置簡圖（靜態地圖）、現場照片（7cm×5.25cm 連續貼入）、座標資訊，檔名以西元年月日時分命名。",
+        "資料儲存機制：以檔案式 JSON 取代資料庫，每案獨立目錄，含稽核軌跡（audit.jsonl）。",
+        "伺服器啟動工具：自動偵測並釋放被佔用的 port 8000，避免啟動衝突。",
     ]
     for item in p1:
         add_paragraph_with_font(doc, f"- {item}")
@@ -223,7 +263,7 @@ def chapter_2(doc: Document) -> None:
             ["case.json", "主資料", "案件欄位、通報內容、雙軌狀態、派工資訊"],
             ["audit.jsonl", "稽核軌跡", "逐筆事件紀錄，含時間、操作者、前後值"],
             ["evidence/", "證據原檔", "原始照片與附件，依 SHA-256 命名"],
-            ["derived/", "衍生資料", "EXIF 結果、OCR 結果、LRS 判讀結果"],
+            ["derived/", "衍生資料", "OCR 結果、LRS（Linear Referencing System，線性參考系統）判讀結果"],
             ["thumbnails/", "縮圖快取", "查詢列表與審核畫面所需縮圖"],
         ],
     )
@@ -263,6 +303,9 @@ def chapter_2(doc: Document) -> None:
             ["PDF 解析", "PyMuPDF、pdfplumber", "工程文件文字/表格擷取"],
             ["OCR", "pytesseract", "里程牌與關鍵文字辨識"],
             ["地圖前端", "Leaflet.js", "WebGIS 標記、聚合與篩選"],
+            ["報表產生", "python-docx", "Word 報表自動產生（填入案件資料與照片）"],
+            ["靜態地圖", "staticmap + httpx", "位置簡圖產製（CARTO/OSM 底圖）"],
+            ["地理服務", "行政區反查、國家公園偵測", "座標自動查詢所屬行政區與國家公園"],
         ],
     )
 
@@ -393,16 +436,46 @@ def chapter_6(doc: Document) -> None:
     steps = [
         ("Step 1：選擇工務段", "以 Quick Reply 顯示 6 工務段，選擇後建立案件草稿並寫入 district_id。"),
         ("Step 2：選擇路線", "根據工務段過濾路線清單，避免非管轄路線誤選，並寫入 route_id 與 route_name。"),
-        ("Step 3：GPS 座標/里程牌", "優先讀取 EXIF GPS；若無 EXIF，提供手動輸入座標或里程牌文字。"),
-        ("Step 4：里程樁號確認", "呼叫 LRS 轉換服務回傳候選里程與 confidence，使用者可接受建議或手動修正。"),
-        ("Step 5：選擇破壞模式", "三大分類：護岸/擋土牆、道路邊坡、橋梁，作為後續原因篩選與模型標籤。"),
-        ("Step 6：選擇致災原因", "依破壞模式過濾 28 組預定義原因，避免自由文字造成標準不一致。"),
-        ("Step 7：災害描述", "填寫自由文字，包含事件經過、現場狀況、是否持續擴大、是否需即時封閉。"),
-        ("Step 8：上傳照片", "需上傳 5-10 張，對應 P1-P10 類型，系統即時顯示目前完成張數。"),
-        ("Step 9：照片標註", "每張照片以多選標籤標註，透過 postback 累積；類型必填與選填規則由系統檢核。"),
-        ("Step 10：工址環境調查", "填寫現地檢核清單（邊坡、結構、河道、天氣等），形成風險特徵向量。"),
-        ("Step 11：初估經費", "Phase 1 為選填欄位，可先填區間或留空，供管理端後續補登。"),
-        ("Step 12：確認送出", "以 Confirm Template 顯示摘要預覽，確認後案件送出並通知決策人員。"),
+        (
+            "Step 3：省道里程輸入",
+            "使用者輸入省道里程樁號（如 45k+200），系統呼叫 LRS 服務轉換為經緯度座標，並回傳 LINE LocationMessage 供使用者在地圖上預覽位置。Quick Reply 提供三選項：「確認位置」、「重新輸入里程」、「微調座標」，其中微調座標允許使用者透過 LINE 地圖直接拖拉調整精確位置。座標顯示統一取小數點下第四位。",
+        ),
+        (
+            "Step 4：地質資訊確認",
+            "系統根據座標自動查詢地質敏感區與國家公園資訊，將偵測結果以文字訊息呈現。此步驟設計為暫停確認機制（CONFIRM_GEO_INFO 狀態），使用者需點選「已閱讀，繼續」按鈕後才進入下一步驟，確保重要地質資訊不被忽略。",
+        ),
+        (
+            "Step 5：填寫工程名稱",
+            "使用者輸入工程名稱文字，此欄位為選填，可選擇「略過後補」。工程名稱將記錄於案件資料中，並作為 Word 報表表頭資訊。",
+        ),
+        (
+            "Step 6：選擇破壞模式",
+            "三大分類：護岸/擋土牆、道路邊坡、橋梁，以 Quick Reply 點選方式呈現，作為後續致災原因篩選與模型標籤。",
+        ),
+        (
+            "Step 7：選擇致災原因",
+            "依破壞模式過濾 28 組預定義原因，以 Quick Reply 點選方式呈現，避免自由文字造成標準不一致。",
+        ),
+        (
+            "Step 8：上傳照片",
+            "需上傳照片，對應 P1-P10 類型，系統即時顯示目前完成張數與各類型狀態。每張照片需標明拍攝狀況，並提供「補照片再填寫」機制，可先上傳部分照片後續再補。照片以副檔名過濾，確保僅接受圖片格式。",
+        ),
+        (
+            "Step 9：照片標註",
+            "每張照片以多選標籤標註，透過 postback 累積；P2、P4 類型為必填標註。選項盡量以點選方式提供豐富內容，需自行打字部分列為選填並提供「略過後補」選項。標註內容與 Input 內 Word 模板做勾稽驗證。",
+        ),
+        (
+            "Step 10：工址環境調查",
+            "填寫現地檢核清單（上邊坡、下邊坡、結構物、橋梁河道、其他），以點選方式呈現各調查項目。勾選結果形成風險特徵向量，並同步填入 Word 報表之工址環境表格。",
+        ),
+        (
+            "Step 11：初估經費",
+            "Phase 1 為選填欄位，使用者可選擇填寫或略過。可先填區間或留空，供管理端後續補登。費用資料將同步填入 Word 報表。",
+        ),
+        (
+            "Step 12：確認送出",
+            "以 Confirm Template 顯示摘要預覽，確認後案件送出並通知決策人員。送出後系統自動產生「公路災害工程內容概述表」Word 報表（可選），檔名以西元年月日時分命名，字體統一使用標楷體並標紅色。",
+        ),
     ]
     for title, content in steps:
         add_heading(doc, title, 2)
@@ -423,48 +496,101 @@ def chapter_7(doc: Document) -> None:
     add_heading(doc, "第7章 照片類型與標註系統", 1)
     add_paragraph_with_font(
         doc,
-        "照片標註設計以「可訓練、可追溯、可量化」為原則。P1-P4 為必填，P5-P10 為選填但建議補齊，以支撐後續 AI 訓練。",
+        "本系統共定義 10 種照片類型（P1-P10），分布於 5 大分類（common、optional、revetment_retaining、road_slope、bridge），以下完整列出各分類之照片類型、標註分類與全部可選項目。",
     )
 
-    photo_rows = [
-        ["P1 全景照（必填）", "拍攝方向、天氣狀況、能見度", "建立場景上下文，輔助位置與時序判讀"],
-        ["P2 災損近照（必填）", "嚴重程度(4-level)、結構類型、損壞特徵", "作為主要損壞辨識與嚴重度訓練資料"],
-        ["P3 道路影響照（必填）", "影響範圍、通行狀態、交通管制", "支援通行決策與交通維持策略"],
-        ["P4 邊坡全景（必填）", "坡面類型、植被覆蓋、排水設施", "建立地形與環境風險背景"],
-        ["P5 里程牌照（選填）", "里程數字(OCR ready)", "驗證 LRS 推估結果，提高位置精度"],
-        ["P6 水路排水照（選填）", "排水設施類型、堵塞程度", "判斷積淹水與次生災害風險"],
-        ["P7 結構物照（選填）", "結構物類型、損壞部位", "補充工程維修估算基礎"],
-        ["P8 尺寸參考照（選填）", "參考物、估計尺寸", "提升破壞尺度估算一致性"],
-        ["P9 對比照（選填）", "拍攝時間點、變化描述", "建立災損演化資訊"],
-        ["P10 周邊環境照（選填）", "周邊設施、影響範圍", "補充外部影響與次生風險"],
-    ]
-    add_table_grid(doc, ["照片類型", "標註欄位", "使用目的"], photo_rows)
+    with PHOTO_TAGS_PATH.open("r", encoding="utf-8") as f:
+        raw_data = cast(object, json.load(f))
 
-    add_heading(doc, "7.2 標註 JSON 結構", 2)
-    annotation_json = """{
-  "photo_type": "P2",
-  "severity": "S3",
-  "tags": ["裂縫", "位移", "混凝土剝落"],
-  "custom_notes": ["右側牆趾有淘刷", "疑似連續降雨造成"],
-  "ai_ready": {
-    "bbox": [],
-    "quality_score": 0.92,
-    "verified": true,
-    "verified_by": "manager_001",
-    "verified_at": "2026-02-28T10:30:00+08:00"
-  }
-}"""
-    add_paragraph_with_font(doc, annotation_json)
+    if not isinstance(raw_data, dict):
+        raise ValueError("photo_tags.json 格式錯誤：根層必須為物件")
 
-    add_heading(doc, "7.3 標註品質控管", 2)
-    qc_points = [
-        "必填類型缺漏時禁止送出，並提示未完成欄位。",
-        "嚴重程度採 S1-S4 四級，避免自由文字分級。",
-        "決策人員可覆核標註並留下覆核紀錄。",
-        "標註版本化，避免覆寫造成資料不可追溯。",
-    ]
-    for item in qc_points:
-        add_paragraph_with_font(doc, f"- {item}")
+    photo_tags_data: dict[str, object] = raw_data
+
+    def as_dict_list(value: object) -> list[dict[str, object]]:
+        if not isinstance(value, list):
+            return []
+        result: list[dict[str, object]] = []
+        for item in value:
+            if isinstance(item, dict):
+                result.append(item)
+        return result
+
+    def as_text(value: object, default: str = "") -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (int, float)):
+            return str(value)
+        return default
+
+    def as_bool(value: object) -> bool:
+        return value is True
+
+    def tag_line(tag_def: dict[str, object]) -> str:
+        mode = "多選" if as_bool(tag_def.get("multi_select")) else "單選"
+        tier = as_text(tag_def.get("tier"), "unknown")
+        category_name = as_text(tag_def.get("category_name"), "未命名分類")
+        return f"- {category_name}（{mode}，tier: {tier}）"
+
+    def options_line(prefix: str, tags: list[dict[str, object]]) -> str:
+        if not tags:
+            return f"  {prefix}：無"
+        labels = "、".join(as_text(tag.get("label")) for tag in tags)
+        return f"  {prefix}：{labels}"
+
+    for category_key, category_heading in CATEGORY_LAYOUT:
+        add_heading(doc, category_heading, 2)
+        category_block_raw = photo_tags_data.get(category_key, {})
+        if not isinstance(category_block_raw, dict):
+            continue
+
+        for photo_type_key, photo_type_def_raw in category_block_raw.items():
+            if not isinstance(photo_type_key, str):
+                continue
+            if not isinstance(photo_type_def_raw, dict):
+                continue
+
+            required = "必填" if as_bool(photo_type_def_raw.get("required")) else "選填"
+            max_photos = as_text(photo_type_def_raw.get("max_photos"), "-")
+            add_heading(
+                doc,
+                f"{photo_type_key} {as_text(photo_type_def_raw.get('name'))}（{required}，最多 {max_photos} 張）",
+                3,
+            )
+
+            add_paragraph_with_font(doc, "照片標註項目 (photo_tags)", bold=True)
+            photo_tag_groups = as_dict_list(photo_type_def_raw.get("photo_tags", []))
+            if not photo_tag_groups:
+                add_paragraph_with_font(doc, "- 無")
+            for tag_group in photo_tag_groups:
+                add_paragraph_with_font(doc, tag_line(tag_group))
+                add_paragraph_with_font(doc, options_line("選項", as_dict_list(tag_group.get("tags", []))))
+                exclusion_tags = as_dict_list(tag_group.get("exclusion_tags", []))
+                if exclusion_tags:
+                    add_paragraph_with_font(
+                        doc,
+                        options_line("排除選項", exclusion_tags),
+                    )
+
+            add_paragraph_with_font(doc, "人工研判項目 (judgment_tags)", bold=True)
+            judgment_tag_groups = as_dict_list(photo_type_def_raw.get("judgment_tags", []))
+            if not judgment_tag_groups:
+                add_paragraph_with_font(doc, "- 無")
+            for tag_group in judgment_tag_groups:
+                base_line = tag_line(tag_group)
+                if as_text(tag_group.get("input_type")) == "text":
+                    base_line += "（自由文字輸入）"
+                add_paragraph_with_font(doc, base_line)
+                if as_text(tag_group.get("input_type")) == "text":
+                    add_paragraph_with_font(doc, "  選項：自由文字輸入")
+                else:
+                    add_paragraph_with_font(doc, options_line("選項", as_dict_list(tag_group.get("tags", []))))
+                exclusion_tags = as_dict_list(tag_group.get("exclusion_tags", []))
+                if exclusion_tags:
+                    add_paragraph_with_font(
+                        doc,
+                        options_line("排除選項", exclusion_tags),
+                    )
 
 
 def chapter_8(doc: Document) -> None:
@@ -478,7 +604,7 @@ def chapter_8(doc: Document) -> None:
     add_heading(doc, "8.2 業務軌（人工）", 2)
     add_paragraph_with_font(
         doc,
-        "業務軌狀態由決策人員操作：pending_review → in_progress → closed；若資料不足可 returned 回使用者補件，補件完成後回到 pending_review。",
+        "業務軌狀態由決策人員操作：pending_review → in_progress → closed；若資料不足可 returned 回使用者補件，補件完成後回到 pending_review。此外，決策人員可透過 WebGIS 刪除案件，刪除前記錄完整稽核紀錄（audit log），並透過 LINE 通知所有決策人員與案件建立者。",
     )
 
     add_heading(doc, "8.3 合法轉換規則", 2)
@@ -492,6 +618,7 @@ def chapter_8(doc: Document) -> None:
             ["業務軌", "pending_review", "in_progress / returned", "決策人員"],
             ["業務軌", "in_progress", "closed / returned", "決策人員"],
             ["業務軌", "returned", "pending_review", "使用者補件後系統轉換"],
+            ["業務軌", "any", "deleted", "決策人員（WebGIS 刪除）"],
         ],
     )
 
@@ -517,7 +644,7 @@ def chapter_8(doc: Document) -> None:
     )
     add_paragraph_with_font(
         doc,
-        "範例事件：manager 變更 business_track 為 in_progress、user 補傳照片、系統完成 milepost_resolved。",
+        "範例事件：manager 變更 business_track 為 in_progress、user 補傳照片、系統完成 milepost_resolved、webgis_admin 刪除案件（含刪除原因與案件快照）。",
     )
 
 
@@ -569,13 +696,25 @@ def chapter_10(doc: Document) -> None:
     add_heading(doc, "10.1 WebGIS 示範頁（Leaflet.js）", 2)
     add_paragraph_with_font(
         doc,
-        "WebGIS 頁面提供案件 marker、聚合、popup、狀態篩選、時間滑桿與工務段切換，協助決策人員快速辨識熱點區域。",
+        "WebGIS 管理平台（公路即時災害通報管理系統(測試)）以 Leaflet.js 建構，提供以下功能：",
     )
+    webgis_features = [
+        "案件點位地圖展示：以 marker 標示各案件位置，支援 popup 顯示案件摘要資訊。",
+        "聚合顯示：兩個以上案件鄰近時以白色氣泡圖示聚合，點擊可展開檢視個別案件。",
+        "篩選功能：支援依工務段（6 段）與案件狀態（待審核、處理中、已結案、已退回）進行篩選。",
+        "案件詳情面板：點選案件可展開右側詳情面板，包含完整填報摘要、現場照片縮圖預覽（點擊可放大）、Word 報表下載連結。",
+        "案件刪除功能：提供紅色刪除按鈕，需二次確認，刪除後自動通知所有決策人員與案件建立者（LINE 推播），並同步更新「審核待辦」清單。",
+        "多圖層切換：5 種底圖（正射影像為預設、電子地圖含等高線、電子地圖、混合影像、OpenStreetMap）與 8 種疊加圖層（地質敏感區(山崩地滑)、地質敏感區(全區)、道路路網、鄉鎮區界、段籍圖、國土利用現況、土壤液化潛勢、電子地圖標註透明層），資料來源為國土測繪中心 WMTS。",
+        "統計儀表板（stats.html）：獨立統計頁面，提供案件數量、工務段分布、狀態分布等視覺化圖表。",
+        "自動刷新：定時自動重新載入案件資料，確保地圖顯示最新狀態。",
+    ]
+    for item in webgis_features:
+        add_paragraph_with_font(doc, f"- {item}")
 
     add_heading(doc, "10.2 Vendor API（Pull Model）", 2)
     add_paragraph_with_font(
         doc,
-        "對外資料交換採 pull model：GET /vendor/cases?since=...，以 API Key 驗證。回傳資料包含新增與異動案件，支援分頁與增量同步。",
+        "對外資料交換採 pull model，以 API Key（X-API-Key Header）驗證。提供以下端點：GET /api/v1/cases（增量拉取案件清單，支援 since 參數與分頁）、GET /api/v1/cases/{case_id}（單案查詢含完整內容與照片縮圖 URL）、DELETE /api/v1/cases/{case_id}（刪除案件，含稽核紀錄與 LINE 同步通知）。回傳資料均採 UTF-8 JSON 格式。",
     )
     add_table_grid(
         doc,
@@ -594,16 +733,34 @@ def chapter_10(doc: Document) -> None:
         "PDF parser pipeline 使用 PyMuPDF 擷取版面文字、pdfplumber 解析表格、pytesseract 處理掃描頁。流程會輸出結構化 JSON 供案件比對與歷史資料補值。",
     )
 
-    add_heading(doc, "10.4 LRS 服務", 2)
+    add_heading(doc, "10.4 LRS（Linear Referencing System）線性參考系統服務", 2)
     add_paragraph_with_font(
         doc,
         "LRS 採 grid-hash + geodesic distance 計算候選里程，依距離、路線方向、歷史一致性加權得出 confidence scoring；若信心不足則要求人工確認。",
     )
 
-    add_heading(doc, "10.5 EXIF 擷取", 2)
+    add_heading(doc, "10.5 Word 報表自動產生", 2)
     add_paragraph_with_font(
         doc,
-        "照片上傳後立即提取 EXIF（時間、GPS、方位、裝置），並與回報時間比對異常值，避免舊照片誤用。EXIF 失敗時改採手動輸入流程。",
+        "系統可依據案件資料自動產生「公路災害工程內容概述表」Word 報表，以 Input 目錄下的空白 .docx 範本為基礎填入以下內容：",
+    )
+    word_points = [
+        "表頭資訊：工程名稱、工務段、路線、里程樁號、經緯度座標（小數點下第四位）。",
+        "位置簡圖：以 CARTO tile server 為主（OSM 為備援）產製靜態地圖截圖，標示案件點位。",
+        "現場照片：依 P1-P10 順序貼入，尺寸固定為寬 7cm × 高 5.25cm，照片緊連貼入無標題。座標文字以段落形式附於照片下方。",
+        "災害分析：破壞模式、致災原因、災害描述。",
+        "工址環境調查：依上邊坡、下邊坡、結構物、橋梁河道、其他分類以勾選方式（■）填入。",
+        "初估費用：依費用項目明細填入。",
+        "字體統一使用標楷體並標紅色，勾選欄位以 ■ 表示（不保留 ☑ 框）。",
+        "檔名格式：以西元年月日時分命名（如 20260301_1430.docx）。",
+    ]
+    for item in word_points:
+        add_paragraph_with_font(doc, f"- {item}")
+
+    add_heading(doc, "10.6 伺服器啟動管理", 2)
+    add_paragraph_with_font(
+        doc,
+        "start_server.py 啟動腳本提供自動偵測 port 8000 佔用並釋放的功能（_kill_port），避免重複啟動時因埠號衝突導致服務無法啟動。啟動過程中的 LOG 均記錄於終端輸出，便於問題排查。",
     )
 
 
@@ -691,6 +848,59 @@ def chapter_12(doc: Document) -> None:
     ]
     for item in deployment:
         add_paragraph_with_font(doc, f"- {item}")
+
+
+def chapter_14(doc: Document) -> None:
+    add_heading(doc, "第14章 定版功能與自動報告勾稽原則", 1)
+
+    add_heading(doc, "14.1 自動產生報告勾稽原則（Word）", 2)
+    section_14_1 = [
+        "勾稽來源以照片標註（Evidence annotations.tags）為主。",
+        "Table 1 採「先勾破壞模式，再勾致災原因」gate 原則，避免跨群誤勾。",
+        "道路邊坡類：可勾道路上方邊坡滑動、道路下方邊坡滑動、整體性破壞，並聯動土質鬆軟、坡度過大。",
+        "護岸/擋土牆類：已建立護岸、河道、上/下方擋土牆破壞對應規則，並聯動水文/排水/介面等致災原因。",
+        "橋梁類：已建立橋墩、橋面、橋台、主梁等破壞模式與洪水沖刷/撞擊原因勾稽。",
+        "Table 2 目前自動勾稽 Row1~Row5；Row6（熱危害）與 Row7（低溫危害）依現行決議維持手動不自動勾選。",
+        "保留人工判斷欄位：Table 1 之「其他(請敘述)」與「致災原因需另辦理整體安全評估」。",
+        "正式規格檔：docs/word_checkbox_mapping_spec.md，後續功能報告須納入本檔內容。",
+    ]
+    for item in section_14_1:
+        add_paragraph_with_font(doc, f"- {item}")
+
+    add_heading(doc, "14.2 LINE 與審核流程功能（定版）", 2)
+    section_14_2 = [
+        "全域選單 postback 於任何 flow 下均可正確路由，不再誤跳「請選擇審核類別」。",
+        "查詢案件 -> 選狀態 -> 查看，已可正常開啟案件詳情。",
+        "管理者於案件詳情可執行「通過 / 退回 / 結案」；一般使用者維持權限控管。",
+        "標註互動優化：排除選項視為單選，點擊即自動前進到下一標註分類。",
+        "多選標註採累積模式，完成所有選項後再按一次「確認選擇」進下一步，減少重複點擊。",
+        "災害原因選單已加入「地震」並防止重複顯示。",
+        "必要照片順序已統一為 P1 -> P2 -> P3 -> P4，並同步調整名稱與提示文案。",
+    ]
+    for item in section_14_2:
+        add_paragraph_with_font(doc, f"- {item}")
+
+    add_heading(doc, "14.3 WebGIS 與統計功能（定版）", 2)
+    section_14_3 = [
+        "WebGIS 圖面可視狀態統一包含：待審核、處理中、已結案、已退回。",
+        "已退回案件若缺座標，使用工務段中心點作為低信心 fallback marker，以確保圖面可視。",
+        "資訊摘要「最後更新」已改為完整日期時間（年月日+時分秒）。",
+        "邊坡災害統計儀表板總數與各工務段件數已改為與 WebGIS 後台一致口徑。",
+        "統一計數來源：僅納入可視案件狀態（pending_review / in_progress / closed / returned），排除 draft。",
+        "WebGIS 後台刪除案件後，LINE 統計摘要與 stats 儀表板會同步更新，不再出現數量不一致。",
+    ]
+    for item in section_14_3:
+        add_paragraph_with_font(doc, f"- {item}")
+
+    add_heading(doc, "14.4 文件與穩定性說明", 2)
+    add_paragraph_with_font(
+        doc,
+        "本次文件使用 python-docx 直接讀寫原始 .docx 並原地覆寫，避免非 Office 相容格式造成開啟錯誤。",
+    )
+    add_paragraph_with_font(
+        doc,
+        "若使用者端仍看到舊版內容，請先關閉檔案並重新開啟或清除暫存後再讀取最新文件。",
+    )
 
 
 def appendix_a(doc: Document) -> None:
@@ -786,7 +996,7 @@ def appendix_c(doc: Document) -> None:
   "location": {
     "lat": 24.987654,
     "lng": 121.543210,
-    "source": "exif",
+    "source": "lrs",
     "milepost": "45k+200",
     "lrs_confidence": 0.91,
     "candidate_mileposts": ["45k+180", "45k+200", "45k+220"]
@@ -873,6 +1083,9 @@ def appendix_d(doc: Document) -> None:
         ["GET", "/gis/cases", "WebGIS 案件點位資料"],
         ["GET", "/vendor/cases", "Vendor API 增量拉取案件"],
         ["GET", "/vendor/cases/{case_id}", "Vendor API 單案查詢"],
+        ["DELETE", "/api/v1/cases/{case_id}", "刪除案件（含稽核紀錄與 LINE 通知）"],
+        ["GET", "/api/v1/cases/{case_id}/word", "下載案件 Word 報表（公路災害工程內容概述表）"],
+        ["GET", "/api/v1/cases/{case_id}/photos/{photo_id}/thumbnail", "取得照片縮圖"],
         ["POST", "/lrs/resolve", "座標轉里程與信心分數"],
         ["POST", "/pdf/parse", "PDF 解析任務"],
         ["GET", "/stats/overview", "決策儀表板統計資料"],
@@ -906,6 +1119,7 @@ def build_document() -> None:
         chapter_10,
         chapter_11,
         chapter_12,
+        chapter_14,
     ]
 
     for idx, chapter in enumerate(chapters):
@@ -925,6 +1139,65 @@ def build_document() -> None:
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(OUTPUT_PATH))
+    _postprocess_docx(OUTPUT_PATH)
+
+
+def _postprocess_docx(path: Path) -> None:
+    """Clean up the docx ZIP for maximum Word compatibility.
+
+    python-docx's default template ships with stylesWithEffects.xml
+    (a Word 2010 artifact) and sets compatibilityMode=14.  Newer Word
+    versions may refuse to open such files or flag them as corrupted.
+
+    This function:
+    1. Removes word/stylesWithEffects.xml
+    2. Strips the corresponding Content_Types override and relationship
+    3. Bumps compatibilityMode from 14 to 15 (Word 2013+)
+    """
+    import xml.etree.ElementTree as ET
+    import zipfile as zf
+
+    tmp = path.with_suffix(".docx.tmp")
+    with zf.ZipFile(str(path), "r") as zin, zf.ZipFile(str(tmp), "w", zf.ZIP_DEFLATED) as zout:
+        for name in zin.namelist():
+            data = zin.read(name)
+
+            # 1. Drop stylesWithEffects.xml entirely
+            if "stylesWithEffects" in name:
+                continue
+
+            # 2. Remove its Content_Types entry
+            if name == "[Content_Types].xml":
+                data = data.replace(
+                    b'<Override PartName="/word/stylesWithEffects.xml"'
+                    b' ContentType="application/vnd.ms-word.stylesWithEffects+xml"/>',
+                    b"",
+                )
+
+            # 3. Remove its relationship entry
+            if name == "word/_rels/document.xml.rels":
+                ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+                root = ET.fromstring(data)
+                for rel in list(root.findall(f"{{{ns}}}Relationship")):
+                    if "stylesWithEffects" in (rel.get("Target") or ""):
+                        root.remove(rel)
+                data = ET.tostring(root, xml_declaration=True, encoding="UTF-8")
+
+            # 4. Bump compatibilityMode to 15
+            if name == "word/settings.xml":
+                data = data.replace(
+                    b'w:name="compatibilityMode"'
+                    b' w:uri="http://schemas.microsoft.com/office/word"'
+                    b' w:val="14"',
+                    b'w:name="compatibilityMode"'
+                    b' w:uri="http://schemas.microsoft.com/office/word"'
+                    b' w:val="15"',
+                )
+
+            zout.writestr(name, data)
+
+    # Atomic replace
+    tmp.replace(path)
 
 
 def verify_document() -> None:
@@ -933,9 +1206,14 @@ def verify_document() -> None:
 
     required_phrases = [
         "邊坡災害通報與資訊整合管理系統",
+        "版本：v1.1.0",
         "第1章 專案概述",
         "第6章 災害通報流程（12步驟）",
         "第7章 照片類型與標註系統",
+        "7.1 共用照片類型（common）",
+        "Step 3：省道里程輸入",
+        "10.5 Word 報表自動產生",
+        "第14章 定版功能與自動報告勾稽原則",
         "附錄D API 端點列表",
         "交通部公路局北區養護工程分局",
     ]
