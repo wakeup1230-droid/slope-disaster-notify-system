@@ -1,0 +1,152 @@
+{
+  "_metadata": {
+    "description": "WebGIS 圖層介接設定 — 邊坡災害通報與資訊整合管理系統",
+    "source": "NLSC 國土測繪中心 WMTS + OpenStreetMap",
+    "url_pattern_note": "{z}/{y}/{x} 為 GoogleMapsCompatible TileMatrixSet，Leaflet / OpenLayers / Mapbox GL 等皆可直接使用",
+    "last_updated": "2026-03-01"
+  },
+
+  "basemaps": [
+    {
+      "id": "EMAP5",
+      "name": "電子地圖(含等高線)",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/EMAP5/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "© 國土測繪中心",
+      "attribution_url": "https://maps.nlsc.gov.tw/",
+      "max_zoom": 20,
+      "default": false
+    },
+    {
+      "id": "EMAP",
+      "name": "電子地圖",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/EMAP/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "© 國土測繪中心",
+      "attribution_url": "https://maps.nlsc.gov.tw/",
+      "max_zoom": 20,
+      "default": false
+    },
+    {
+      "id": "PHOTO2",
+      "name": "正射影像",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "© 國土測繪中心 正射影像",
+      "attribution_url": "https://maps.nlsc.gov.tw/",
+      "max_zoom": 19,
+      "default": true
+    },
+    {
+      "id": "PHOTO_MIX",
+      "name": "混合影像",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/PHOTO_MIX/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "© 國土測繪中心 混合影像",
+      "attribution_url": "https://maps.nlsc.gov.tw/",
+      "max_zoom": 19,
+      "default": false
+    },
+    {
+      "id": "OSM",
+      "name": "OpenStreetMap",
+      "provider": "OpenStreetMap",
+      "url": "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "attribution": "© OpenStreetMap contributors",
+      "attribution_url": "https://www.openstreetmap.org/copyright",
+      "max_zoom": 19,
+      "default": false
+    }
+  ],
+
+  "overlays": [
+    {
+      "id": "GeoSensitive2",
+      "name": "⚠ 地質敏感區(山崩地滑)",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/GeoSensitive2/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "國土測繪中心 地質敏感區",
+      "max_zoom": 20,
+      "opacity": 0.65,
+      "enabled_by_default": false,
+      "category": "地質"
+    },
+    {
+      "id": "GeoSensitive",
+      "name": "地質敏感區(全區)",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/GeoSensitive/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "國土測繪中心 地質敏感區",
+      "max_zoom": 20,
+      "opacity": 0.6,
+      "enabled_by_default": false,
+      "category": "地質"
+    },
+    {
+      "id": "ROAD",
+      "name": "道路路網",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/ROAD/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "國土測繪中心",
+      "max_zoom": 20,
+      "opacity": 0.7,
+      "enabled_by_default": false,
+      "category": "交通"
+    },
+    {
+      "id": "TOWN",
+      "name": "鄉鎮區界",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/TOWN/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "國土測繪中心",
+      "max_zoom": 20,
+      "opacity": 0.6,
+      "enabled_by_default": false,
+      "category": "行政區"
+    },
+    {
+      "id": "LANDSECT",
+      "name": "段籍圖",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/LANDSECT/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "國土測繪中心 段籍圖",
+      "max_zoom": 20,
+      "opacity": 0.55,
+      "enabled_by_default": false,
+      "category": "地籍"
+    },
+    {
+      "id": "LUIMAP",
+      "name": "國土利用現況",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/LUIMAP/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "國土測繪中心 國土利用調查",
+      "max_zoom": 18,
+      "opacity": 0.5,
+      "enabled_by_default": false,
+      "category": "土地利用"
+    },
+    {
+      "id": "SoilLiquefaction",
+      "name": "土壤液化潛勢",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/SoilLiquefaction/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "國土測繪中心 土壤液化",
+      "max_zoom": 20,
+      "opacity": 0.5,
+      "enabled_by_default": false,
+      "category": "地質"
+    },
+    {
+      "id": "EMAP2",
+      "name": "電子地圖標註(透明)",
+      "provider": "NLSC",
+      "url": "https://wmts.nlsc.gov.tw/wmts/EMAP2/default/GoogleMapsCompatible/{z}/{y}/{x}",
+      "attribution": "國土測繪中心",
+      "max_zoom": 20,
+      "opacity": 0.8,
+      "enabled_by_default": false,
+      "category": "底圖輔助"
+    }
+  ]
+}

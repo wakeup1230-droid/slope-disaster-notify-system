@@ -11,6 +11,6 @@ async def health_check(request: Request):
     return {
         "status": "ok",
         "env": settings.app_env,
-        "version": "1.0.0-phase1",
+        "version": "1.1.0",
         "system": "邊坡災害通報與資訊整合管理系統",
     }

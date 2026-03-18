@@ -78,6 +78,16 @@ class User(BaseModel):
         """Reject the user registration."""
         self.status = UserStatus.REJECTED
 
+    def reapply(self) -> None:
+        """Re-apply after rejection or suspension — sets status back to PENDING."""
+        self.status = UserStatus.PENDING
+        self.approved_at = None
+        self.approved_by = None
+
     def touch(self) -> None:
         """Update last_active timestamp."""
         self.last_active = datetime.now().isoformat()
+
+    def suspend(self) -> None:
+        """Suspend the user account."""
+        self.status = UserStatus.SUSPENDED

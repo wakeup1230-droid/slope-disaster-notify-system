@@ -157,3 +157,89 @@ def test_exists(user_store: UserStore) -> None:
 
     assert user_store.exists("U001") is True
     assert user_store.exists("U404") is False
+
+
+def test_reapply(user_store: UserStore) -> None:
+    _ = user_store.create(user_id="U001", status=UserStatus.REJECTED)
+
+    reapplied = user_store.reapply("U001")
+    loaded = user_store.get("U001")
+
+    assert reapplied is not None
+    assert reapplied.status == UserStatus.PENDING
+    assert reapplied.approved_at is None
+    assert reapplied.approved_by is None
+    assert loaded is not None
+    assert loaded.status == UserStatus.PENDING
+
+
+def test_reapply_nonexistent(user_store: UserStore) -> None:
+    result = user_store.reapply("U404")
+    assert result is None
+
+
+def test_reapply_from_suspended(user_store: UserStore) -> None:
+    _ = user_store.create(user_id="U001", status=UserStatus.ACTIVE)
+    user = user_store.get("U001")
+    assert user is not None
+    user.status = UserStatus.SUSPENDED
+    user_store.save(user)
+
+    reapplied = user_store.reapply("U001")
+    assert reapplied is not None
+    assert reapplied.status == UserStatus.PENDING
+
+
+def test_update_profile(user_store: UserStore) -> None:
+    _ = user_store.create(
+        user_id="U001",
+        real_name="Alice",
+        district_id="jingmei",
+        district_name="景美工務段",
+        role=UserRole.USER,
+        status=UserStatus.ACTIVE,
+    )
+
+    updated = user_store.update_profile(
+        "U001",
+        real_name="Bob",
+        role=UserRole.MANAGER,
+        district_id="fuxing",
+        district_name="復興工務段",
+    )
+    loaded = user_store.get("U001")
+
+    assert updated is not None
+    assert updated.real_name == "Bob"
+    assert updated.role == UserRole.MANAGER
+    assert updated.district_id == "fuxing"
+    assert updated.district_name == "復興工務段"
+    # Profile update triggers re-approval
+    assert updated.status == UserStatus.PENDING
+    assert updated.approved_at is None
+    assert loaded is not None
+    assert loaded.status == UserStatus.PENDING
+
+
+def test_update_profile_partial(user_store: UserStore) -> None:
+    """Only update provided fields, leave others unchanged."""
+    _ = user_store.create(
+        user_id="U001",
+        real_name="Alice",
+        district_id="jingmei",
+        district_name="景美工務段",
+        role=UserRole.USER,
+        status=UserStatus.ACTIVE,
+    )
+
+    updated = user_store.update_profile("U001", real_name="New Alice")
+    assert updated is not None
+    assert updated.real_name == "New Alice"
+    assert updated.district_id == "jingmei"  # unchanged
+    assert updated.role == UserRole.USER  # unchanged
+    assert updated.status == UserStatus.PENDING  # re-approval required
+
+
+def test_update_profile_nonexistent(user_store: UserStore) -> None:
+    result = user_store.update_profile("U404", real_name="Ghost")
+    assert result is None

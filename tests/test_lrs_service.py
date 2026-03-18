@@ -106,6 +106,19 @@ def test_parse_milepost_km() -> None:
     parse_milepost = cast(Callable[[str], float | None], getattr(LRSService, "_parse_milepost_km"))
     assert parse_milepost("3K+500") == 3.5
     assert parse_milepost("10K") == 10.0
+    # Case-insensitive K
+    assert parse_milepost("12k+400") == 12.4
+    assert parse_milepost("12K+400") == 12.4
+    # Decimal km (e.g. 12.4 = 12K+400)
+    assert parse_milepost("12.4") == 12.4
+    # No plus sign (12K400)
+    assert parse_milepost("12K400") == 12.4
+    assert parse_milepost("12k400") == 12.4
+    # Edge cases
+    assert parse_milepost("0K+000") == 0.0
+    assert parse_milepost("5k") == 5.0
+    assert parse_milepost("") is None
+    assert parse_milepost("abc") is None
 
 
 def test_format_milepost() -> None:

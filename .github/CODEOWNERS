@@ -1,0 +1,7 @@
+# Example CODEOWNERS file
+# Copy to .github/CODEOWNERS and adjust account/team names
+
+* @your-org/maintainers
+/app/ @your-org/backend-team
+/webgis/ @your-org/frontend-team
+/.github/workflows/ @your-org/devops-team

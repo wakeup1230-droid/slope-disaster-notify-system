@@ -1396,6 +1396,27 @@ class LineFlowController:
             session.reset()
             return [FlexBuilder.case_list_carousel(cards), FlexBuilder.quick_action_card("query_done", is_manager=False)]
 
+        if action == "query_choose_district":
+            district_items = [
+                {
+                    "type": "postback",
+                    "label": d["name"],
+                    "data": f"action=query_filter_district&district_id={d['id']}",
+                    "displayText": d["name"],
+                }
+                for d in self._districts
+            ]
+            return [FlexBuilder.quick_reply_message("請選擇工務段篩選：", district_items)]
+
+        if action == "query_choose_status":
+            status_items = [
+                {"type": "postback", "label": "待審核", "data": f"action=query_filter_status&status={ReviewStatus.PENDING_REVIEW.value}", "displayText": "待審核"},
+                {"type": "postback", "label": "處理中", "data": f"action=query_filter_status&status={ReviewStatus.IN_PROGRESS.value}", "displayText": "處理中"},
+                {"type": "postback", "label": "已退回", "data": f"action=query_filter_status&status={ReviewStatus.RETURNED.value}", "displayText": "已退回"},
+                {"type": "postback", "label": "已結案", "data": f"action=query_filter_status&status={ReviewStatus.CLOSED.value}", "displayText": "已結案"},
+            ]
+            return [FlexBuilder.quick_reply_message("請選擇狀態篩選：", status_items)]
+
         if action == "query_filter_district":
             district_id = payload.get("district_id", "")
             cases = self._cases.get_cases_by_district(district_id)
@@ -1416,25 +1437,12 @@ class LineFlowController:
             session.reset()
             return [FlexBuilder.case_list_carousel(cards), FlexBuilder.quick_action_card("query_done", is_manager=bool(user and user.is_manager))]
 
-        district_items = [
-            {
-                "type": "postback",
-                "label": d["name"],
-                "data": f"action=query_filter_district&district_id={d['id']}",
-                "displayText": d["name"],
-            }
-            for d in self._districts
+        # Initial query menu: choose filter type first
+        filter_type_items = [
+            {"type": "postback", "label": "依工務段篩選", "data": "action=query_choose_district", "displayText": "依工務段篩選"},
+            {"type": "postback", "label": "依狀態篩選", "data": "action=query_choose_status", "displayText": "依狀態篩選"},
         ]
-        status_items = [
-            {"type": "postback", "label": "待審核", "data": f"action=query_filter_status&status={ReviewStatus.PENDING_REVIEW.value}", "displayText": "待審核"},
-            {"type": "postback", "label": "處理中", "data": f"action=query_filter_status&status={ReviewStatus.IN_PROGRESS.value}", "displayText": "處理中"},
-            {"type": "postback", "label": "已退回", "data": f"action=query_filter_status&status={ReviewStatus.RETURNED.value}", "displayText": "已退回"},
-            {"type": "postback", "label": "已結案", "data": f"action=query_filter_status&status={ReviewStatus.CLOSED.value}", "displayText": "已結案"},
-        ]
-        return [
-            FlexBuilder.quick_reply_message("請選擇工務段篩選：", district_items),
-            FlexBuilder.quick_reply_message("或依狀態篩選：", status_items),
-        ]
+        return [FlexBuilder.quick_reply_message("請選擇篩選方式：", filter_type_items)]
 
 
     # ── Profile helpers ─────────────────────────────────────────────
@@ -1863,8 +1871,8 @@ class LineFlowController:
         prompts = {
             "P1": "記錄災點整體環境與現場概況。",
             "P2": "拍攝邊坡整體型態、崩塌範圍與既有保護設施。",
-            "P3": "拍攝目前會再致災的邊坡細節，清楚呈現損壞狀況。",
-            "P4": "記錄道路路面狀況與影響範圍。",
+            "P3": "記錄道路路面狀況與影響範圍。",
+            "P4": "拍攝目前會再致災的邊坡細節，清楚呈現損壞狀況。",
             "P5": "拍攝現場排水溝、涵管、截水溝等排水設施現況。",
             "P6": "拍攝災點鄰近的擋土牆、護欄、橋梁等構造物。",
             "P7": "拍攝可見地層、岩層露頭、土壤剖面等地質特徵。",

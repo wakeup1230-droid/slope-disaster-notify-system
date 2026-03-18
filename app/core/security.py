@@ -65,3 +65,71 @@ async def verify_vendor_api_key(
 def compute_sha256(data: bytes) -> str:
     """Compute SHA-256 hex digest of binary data."""
     return hashlib.sha256(data).hexdigest()
+
+
+# --- Admin Token (HMAC-SHA256 + Time Expiry) ---
+
+def generate_admin_token(user_id: str, secret: str, expires_in: int = 3600) -> str:
+    """
+    Generate an HMAC-SHA256 admin token for web management page access.
+
+    Token format: base64url(json_payload).signature
+    Payload: {"uid": user_id, "exp": unix_timestamp}
+
+    Args:
+        user_id: LINE User ID of the manager.
+        secret: HMAC secret key (typically line_channel_secret).
+        expires_in: Token lifetime in seconds (default: 3600 = 1 hour).
+
+    Returns:
+        URL-safe token string.
+    """
+    import json
+    import time
+
+    exp = int(time.time()) + expires_in
+    payload = json.dumps({"uid": user_id, "exp": exp}, separators=(",", ":"))
+    payload_b64 = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("utf-8").rstrip("=")
+    sig = hmac.new(secret.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload_b64}.{sig}"
+
+
+def verify_admin_token(token: str, secret: str) -> Optional[str]:
+    """
+    Verify an HMAC-SHA256 admin token and return the user_id if valid.
+
+    Args:
+        token: The token string from URL query parameter.
+        secret: HMAC secret key (must match generation key).
+
+    Returns:
+        user_id string if token is valid and not expired, None otherwise.
+    """
+    import json
+    import time
+
+    if not token or "." not in token:
+        return None
+
+    try:
+        payload_b64, sig = token.rsplit(".", 1)
+        # Verify signature first
+        expected_sig = hmac.new(
+            secret.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+
+        # Decode payload
+        # Restore base64 padding
+        padded = payload_b64 + "=" * (4 - len(payload_b64) % 4)
+        payload_json = base64.urlsafe_b64decode(padded).decode("utf-8")
+        payload = json.loads(payload_json)
+
+        # Check expiry
+        if int(time.time()) > payload.get("exp", 0):
+            return None
+
+        return payload.get("uid")
+    except (ValueError, KeyError, json.JSONDecodeError, Exception):
+        return None

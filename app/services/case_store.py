@@ -198,11 +198,11 @@ class CaseStore:
         return cases
 
     def list_by_district(self, district_id: str) -> list[Case]:
-        """List all cases for a given district."""
+        """List all cases for a given district.  ``"all"`` returns every case."""
         cases = []
         for case_id in self.list_all():
             case = self.get(case_id)
-            if case and case.district_id == district_id:
+            if case and (district_id == "all" or case.district_id == district_id):
                 cases.append(case)
         return cases
 

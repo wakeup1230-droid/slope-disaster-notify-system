@@ -34,12 +34,26 @@ class RegistrationStep(str, Enum):
     DONE = "done"
 
 
+class ProfileStep(str, Enum):
+    """Steps in the profile edit / reapply flow."""
+    MENU = "menu"                        # Show profile with action buttons
+    EDIT_REAL_NAME = "edit_real_name"    # Edit name
+    EDIT_ROLE = "edit_role"              # Edit role
+    EDIT_DISTRICT = "edit_district"      # Edit district
+    CONFIRM_EDIT = "confirm_edit"        # Confirm profile changes
+    CONFIRM_REAPPLY = "confirm_reapply"  # Confirm re-apply
+
+
 class ReportingStep(str, Enum):
-    """Steps in the 12-step disaster reporting flow."""
+    """Steps in the reporting flow."""
     SELECT_DISTRICT = "select_district"          # Step 1
     SELECT_ROAD = "select_road"                  # Step 2
     INPUT_COORDINATES = "input_coordinates"      # Step 3
     CONFIRM_MILEPOST = "confirm_milepost"        # Step 4
+    CONFIRM_GEO_INFO = "confirm_geo_info"        # Step 4a
+    PROJECT_NAME = "project_name"                # Step 4b - Word
+    DISASTER_DATE = "disaster_date"              # Step 4c - Word
+    NEARBY_LANDMARK = "nearby_landmark"          # Step 4d - Word
     SELECT_DAMAGE_MODE = "select_damage_mode"    # Step 5
     SELECT_DAMAGE_CAUSE = "select_damage_cause"  # Step 6
     INPUT_DESCRIPTION = "input_description"      # Step 7
@@ -47,6 +61,17 @@ class ReportingStep(str, Enum):
     ANNOTATE_PHOTOS = "annotate_photos"          # Step 9
     SITE_SURVEY = "site_survey"                  # Step 10
     ESTIMATED_COST = "estimated_cost"            # Step 11
+    DISASTER_TYPE = "disaster_type"              # Step 12a - P2
+    PROCESSING_TYPE = "processing_type"          # Step 12b - P2
+    REPEAT_DISASTER = "repeat_disaster"          # Step 12c - P2
+    ORIGINAL_PROTECTION = "original_protection"  # Step 12d - P3
+    ANALYSIS_REVIEW = "analysis_review"          # Step 12e - P3
+    DESIGN_DOCS = "design_docs"                  # Step 12f - P3
+    SOIL_CONSERVATION = "soil_conservation"      # Step 12g - P4
+    SAFETY_ASSESSMENT = "safety_assessment"      # Step 12h - P4
+    HAZARD_IDENTIFICATION = "hazard_identification"  # Step 12i - P5
+    OTHER_SUPPLEMENT = "other_supplement"        # Step 12j - 其他補充
+    GENERATE_WORD = "generate_word"          # 產生 Word 報告（可選）
     CONFIRM_SUBMIT = "confirm_submit"            # Step 12
     DONE = "done"
 

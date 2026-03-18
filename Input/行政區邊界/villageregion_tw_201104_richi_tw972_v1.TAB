@@ -1,0 +1,37 @@
+!table
+!version 700
+!charset WindowsTradChinese
+
+Definition Table
+  Type NATIVE Charset "WindowsTradChinese"
+  Fields 11
+    Coun_na Char (30) ;
+    Town_na Char (30) ;
+    Vlg_na Char (30) ;
+    Vlg_id Char (20) ;
+    Household Float ;
+    Man Float ;
+    Female Float ;
+    Population Float ;
+    Source Char (20) ;
+    Shape_leng Float ;
+    Shape_area Float ;
+begin_metadata
+"\IsReadOnly" = "FALSE"
+"\Shapefile" = ""
+"\Shapefile\PersistentCache" = "FALSE"
+"\Spatial Reference" = ""
+"\Spatial Reference\Geographic" = ""
+"\Spatial Reference\Geographic\Projection" = ""
+"\Spatial Reference\Geographic\Projection\Clause" = "CoordSys Earth Projection 8, 104, ""m"", 121, 0, 0.9999, 250000, 0 Bounds (-7998319.03916, -10000965.533) (8498319.03916, 10000965.533)"
+"\DefaultStyles" = ""
+"\DefaultStyles\Pen" = ""
+"\DefaultStyles\Pen\LineWidth" = "1"
+"\DefaultStyles\Pen\LineStyle" = "0"
+"\DefaultStyles\Pen\Color" = "0"
+"\DefaultStyles\Pen\Pattern" = "2"
+"\DefaultStyles\Brush" = ""
+"\DefaultStyles\Brush\Pattern" = "2"
+"\DefaultStyles\Brush\Forecolor" = "16777215"
+"\DefaultStyles\Brush\Backcolor" = "16777215"
+end_metadata

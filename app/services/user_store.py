@@ -141,6 +141,45 @@ class UserStore:
             return user
         return None
 
+    def reapply(self, user_id: str) -> Optional[User]:
+        """Re-apply for registration (rejected/suspended → pending)."""
+        user = self.get(user_id)
+        if user is None:
+            return None
+        user.reapply()
+        if self.save(user):
+            logger.info("User reapplied: %s", user_id)
+            return user
+        return None
+
+    def update_profile(
+        self,
+        user_id: str,
+        *,
+        real_name: str | None = None,
+        role: UserRole | None = None,
+        district_id: str | None = None,
+        district_name: str | None = None,
+    ) -> Optional[User]:
+        """Update user profile fields and set status to PENDING for re-approval."""
+        user = self.get(user_id)
+        if user is None:
+            return None
+        if real_name is not None:
+            user.real_name = real_name
+        if role is not None:
+            user.role = role
+        if district_id is not None:
+            user.district_id = district_id
+        if district_name is not None:
+            user.district_name = district_name
+        # Any profile change requires re-approval
+        user.reapply()
+        if self.save(user):
+            logger.info("Profile updated (pending re-approval): %s", user_id)
+            return user
+        return None
+
     def list_by_status(self, status: UserStatus) -> list[User]:
         """List all users with a given status."""
         users = []
@@ -212,3 +251,73 @@ class UserStore:
         self.save(admin)
         logger.info("Bootstrap admin created: %s (%s)", line_id, name)
         return admin
+
+    def suspend(self, user_id: str) -> Optional[User]:
+        """Suspend an active user account."""
+        user = self.get(user_id)
+        if user is None:
+            logger.warning("Cannot suspend non-existent user: %s", user_id)
+            return None
+        user.suspend()
+        if self.save(user):
+            logger.info("Suspended user: %s", user_id)
+            return user
+        return None
+
+    def delete_user(self, user_id: str) -> bool:
+        """
+        Permanently delete a user account (irreversible).
+
+        Returns:
+            True if successfully deleted.
+        """
+        path = self._user_path(user_id)
+        if not path.exists():
+            logger.warning("Cannot delete non-existent user: %s", user_id)
+            return False
+        try:
+            path.unlink()
+            logger.info("Deleted user: %s", user_id)
+            return True
+        except OSError as e:
+            logger.error("Failed to delete user %s: %s", user_id, e)
+            return False
+
+    def update_role(self, user_id: str, role: UserRole) -> Optional[User]:
+        """Update user role without triggering re-approval."""
+        user = self.get(user_id)
+        if user is None:
+            return None
+        user.role = role
+        if self.save(user):
+            logger.info("Updated role for user %s to %s", user_id, role.value)
+            return user
+        return None
+
+    def update_district(
+        self, user_id: str, district_id: str, district_name: str
+    ) -> Optional[User]:
+        """Update user district without triggering re-approval."""
+        user = self.get(user_id)
+        if user is None:
+            return None
+        user.district_id = district_id
+        user.district_name = district_name
+        if self.save(user):
+            logger.info("Updated district for user %s to %s", user_id, district_id)
+            return user
+        return None
+
+    def restore(self, user_id: str) -> Optional[User]:
+        """Restore a suspended user account to active."""
+        user = self.get(user_id)
+        if user is None:
+            return None
+        if user.status != UserStatus.SUSPENDED:
+            logger.warning("Cannot restore non-suspended user: %s (status=%s)", user_id, user.status.value)
+            return None
+        user.status = UserStatus.ACTIVE
+        if self.save(user):
+            logger.info("Restored user: %s", user_id)
+            return user
+        return None

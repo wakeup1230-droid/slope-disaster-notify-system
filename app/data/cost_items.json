@@ -1,0 +1,10 @@
+{
+  "items": [
+    {"id": "labor_guard", "name": "人工看守費", "unit": "人日", "unit_price": 4000, "input_type": "quantity"},
+    {"id": "large_truck", "name": "大型貨車租用", "unit": "日", "unit_price": 8000, "input_type": "quantity"},
+    {"id": "small_excavator", "name": "小型鏟土車", "unit": "日", "unit_price": 7000, "input_type": "quantity"},
+    {"id": "cms_vehicle", "name": "cms交維車", "unit": "日", "unit_price": 5000, "input_type": "quantity"},
+    {"id": "other_cost", "name": "其它費用", "unit": "元", "unit_price": null, "input_type": "amount"},
+    {"id": "management_fee", "name": "工程管理費", "unit": "元", "unit_price": null, "input_type": "amount"}
+  ]
+}

@@ -54,6 +54,7 @@ class Settings(BaseSettings):
         "env_file": (".env", "secrets.private.env"),
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
+        "extra": "ignore",
     }
 
     # --- Derived Properties ---

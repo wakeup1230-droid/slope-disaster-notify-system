@@ -98,16 +98,76 @@
           "exclusion_tags": [
             { "id": "no_risk", "label": "無明顯風險" }
           ]
+        },
+        {
+          "category_id": "surrounding",
+          "category_name": "周邊可見狀況",
+          "source": "photo",
+          "tier": "ai_prefill",
+          "ai_capability": "low",
+          "multi_select": true,
+          "tags": [
+            { "id": "building_nearby", "label": "鄰近建物" },
+            { "id": "road_above", "label": "上方有道路" },
+            { "id": "road_below", "label": "下方有道路" },
+            { "id": "farmland", "label": "農田" },
+            { "id": "retaining_wall", "label": "擋土設施" },
+            { "id": "river_nearby", "label": "鄰近河川" },
+            { "id": "utility_line", "label": "管線設施" },
+            { "id": "bridge_nearby", "label": "鄰近橋梁" },
+            { "id": "monitoring_device", "label": "監測儀器" },
+            { "id": "construction_ongoing", "label": "施工中" },
+            { "id": "other_slope_failure", "label": "鄰近其他邊坡破壞" }
+          ],
+          "exclusion_tags": [
+            { "id": "no_abnormal", "label": "無其他異常" }
+          ]
+        },
+        {
+          "category_id": "damage_extent",
+          "category_name": "道路受災害影響範圍",
+          "source": "photo",
+          "tier": "ai_prefill",
+          "ai_capability": "medium",
+          "multi_select": false,
+          "tags": [
+            { "id": "lt_5m", "label": "小於5m" },
+            { "id": "5_20m", "label": "5-20m" },
+            { "id": "20_50m", "label": "20-50m" },
+            { "id": "50_100m", "label": "50-100m" },
+            { "id": "gt_100m", "label": "大於100m" }
+          ],
+          "exclusion_tags": [
+            { "id": "cannot_estimate", "label": "無法估計" }
+          ]
         }
       ],
       "judgment_tags": []
     },
     "P3": {
       "type_id": "P3",
-      "name": "邊坡災害近照",
+      "name": "道路影響照",
       "required": true,
       "max_photos": 2,
       "photo_tags": [
+        {
+          "category_id": "shooting_position",
+          "category_name": "拍攝位置",
+          "source": "photo",
+          "tier": "required",
+          "ai_capability": "high",
+          "multi_select": false,
+          "tags": [
+            { "id": "panoramic_upslope", "label": "全景往上邊坡" },
+            { "id": "panoramic_downslope", "label": "全景往下邊坡" },
+            { "id": "panoramic_lateral", "label": "全景側向" },
+            { "id": "aerial_view", "label": "鳥瞰(高處俯拍)" },
+            { "id": "from_road", "label": "從道路側拍攝" },
+            { "id": "from_opposite", "label": "從對面拍攝" },
+            { "id": "from_below", "label": "從下方拍攝" }
+          ],
+          "exclusion_tags": []
+        },
         {
           "category_id": "road_damage",
           "category_name": "道路損壞狀況",
@@ -952,7 +1012,7 @@
     },
     "P4": {
       "type_id": "P4",
-      "name": "道路影響照",
+      "name": "邊坡災害近照",
       "required": true,
       "max_photos": 3,
       "photo_tags": [
@@ -1264,31 +1324,6 @@
           "exclusion_tags": []
         },
         {
-          "category_id": "visible_damage",
-          "category_name": "易致災狀況",
-          "source": "photo",
-          "tier": "required",
-          "ai_capability": "high",
-          "multi_select": true,
-          "tags": [
-            { "id": "erosion_rill", "label": "表面沖蝕(細溝)" },
-            { "id": "erosion_gully", "label": "沖蝕溝" },
-            { "id": "tension_crack", "label": "張力裂縫" },
-            { "id": "scarp", "label": "崩崖" },
-            { "id": "subsidence", "label": "地表沉陷" },
-            { "id": "heave", "label": "地表隆起" },
-            { "id": "tree_tilt", "label": "樹木傾斜" },
-            { "id": "seepage", "label": "滲水" },
-            { "id": "slope_bulge", "label": "邊坡鼓脹" },
-            { "id": "hanging_rock", "label": "落石倒懸" },
-            { "id": "isolated_rock_pile", "label": "孤石堆積" },
-            { "id": "slope_debris_deposit", "label": "邊坡有堆積物" }
-          ],
-          "exclusion_tags": [
-            { "id": "no_visible_damage", "label": "無明顯損壞" }
-          ]
-        },
-        {
           "category_id": "slope_surface",
           "category_name": "坡面型態",
           "source": "photo",
@@ -1311,24 +1346,148 @@
           ]
         },
         {
-          "category_id": "water_signs",
-          "category_name": "水的跡象",
+          "category_id": "slope_gradient",
+          "category_name": "邊坡坡度概估",
+          "source": "photo",
+          "tier": "required",
+          "ai_capability": "low",
+          "multi_select": false,
+          "tags": [
+            { "id": "gentle", "label": "緩坡(<30°)" },
+            { "id": "moderate", "label": "中坡(30-45°)" },
+            { "id": "steep", "label": "陡坡(45-60°)" },
+            { "id": "very_steep", "label": "極陡(60-75°)" },
+            { "id": "cliff", "label": "近垂直(>75°)" },
+            { "id": "variable", "label": "坡度不一" }
+          ],
+          "exclusion_tags": [
+            { "id": "cannot_determine", "label": "無法判斷" }
+          ]
+        },
+        {
+          "category_id": "existing_protection",
+          "category_name": "坡面既有保護",
+          "source": "photo",
+          "tier": "required",
+          "ai_capability": "medium",
+          "multi_select": true,
+          "tags": [
+            { "id": "shotcrete", "label": "噴凝土" },
+            { "id": "concrete_frame", "label": "格框植生" },
+            { "id": "rock_bolt", "label": "岩栓" },
+            { "id": "ground_anchor", "label": "地錨" },
+            { "id": "soil_nail", "label": "土釘" },
+            { "id": "gabion", "label": "蛇籠" },
+            { "id": "rock_net", "label": "落石防護網" },
+            { "id": "retaining_wall", "label": "擋土牆" },
+            { "id": "drainage_well", "label": "排水井" },
+            { "id": "horizontal_drain", "label": "水平排水管" },
+            { "id": "vegetation_eng", "label": "植生工法" },
+            { "id": "geotextile", "label": "地工織物" }
+          ],
+          "exclusion_tags": [
+            { "id": "no_protection", "label": "無保護設施" },
+            { "id": "uncertain", "label": "不確定" }
+          ]
+        },
+        {
+          "category_id": "overall_extent",
+          "category_name": "崩塌範圍",
+          "source": "photo",
+          "tier": "required",
+          "ai_capability": "medium",
+          "multi_select": false,
+          "tags": [
+            { "id": "localized", "label": "局部(<100m²)" },
+            { "id": "section", "label": "區段(100-500m²)" },
+            { "id": "large", "label": "大範圍(500-2,000m²)" },
+            { "id": "extensive", "label": "大面積(2,000-10,000m²)" },
+            { "id": "massive", "label": "超大規模(>10,000m²)" }
+          ],
+          "exclusion_tags": [
+            { "id": "cannot_estimate", "label": "無法估計" }
+          ]
+        },
+        {
+          "category_id": "geology_estimate",
+          "category_name": "邊坡地質概估",
+          "source": "photo",
+          "tier": "ai_prefill",
+          "ai_capability": "low",
+          "multi_select": false,
+          "tags": [
+            { "id": "rock_hard", "label": "硬岩(砂岩石灰岩等)" },
+            { "id": "rock_soft", "label": "軟岩(泥岩頁岩)" },
+            { "id": "rock_metamorphic", "label": "變質岩(片岩板岩)" },
+            { "id": "colluvium", "label": "崩積層" },
+            { "id": "alluvium", "label": "沖積層" },
+            { "id": "laterite", "label": "紅土(礫石)層" },
+            { "id": "fill", "label": "人工填土" },
+            { "id": "weathered", "label": "嚴重風化層" },
+            { "id": "mixed", "label": "混合地質" }
+          ],
+          "exclusion_tags": [
+            { "id": "uncertain", "label": "不確定" }
+          ]
+        },
+        {
+          "category_id": "collapse_type",
+          "category_name": "崩塌類型",
+          "source": "photo",
+          "tier": "required",
+          "ai_capability": "high",
+          "multi_select": false,
+          "tags": [
+            { "id": "rockfall", "label": "落石" },
+            { "id": "debris_avalanche", "label": "岩屑崩滑" },
+            { "id": "rock_mass_slide", "label": "岩體滑動" },
+            { "id": "debris_flow", "label": "土石流" }
+          ],
+          "exclusion_tags": [
+            { "id": "cannot_determine", "label": "無法判斷" }
+          ]
+        },
+        {
+          "category_id": "drainage",
+          "category_name": "排水設施狀況",
           "source": "photo",
           "tier": "ai_prefill",
           "ai_capability": "medium",
           "multi_select": true,
           "tags": [
-            { "id": "seepage", "label": "滲水" },
-            { "id": "spring", "label": "湧水" },
-            { "id": "wet_surface", "label": "表面潮濕" },
-            { "id": "runoff", "label": "逕流沖刷" },
-            { "id": "ponding", "label": "積水" },
-            { "id": "mud_water", "label": "泥水" },
-            { "id": "waterfall", "label": "瀑布狀水流" },
-            { "id": "erosion_channel", "label": "沖蝕溝槽" }
+            { "id": "side_ditch", "label": "邊溝" },
+            { "id": "intercept_ditch", "label": "截水溝" },
+            { "id": "down_drain", "label": "縱向排水溝" },
+            { "id": "horizontal_drain", "label": "水平排水管" },
+            { "id": "drainage_well", "label": "排水井" },
+            { "id": "culvert", "label": "涵管" },
+            { "id": "catch_basin", "label": "集水井" },
+            { "id": "blocked", "label": "部分堵塞" },
+            { "id": "severe_blocked", "label": "嚴重堵塞" },
+            { "id": "damaged", "label": "破損" }
           ],
           "exclusion_tags": [
-            { "id": "dry", "label": "乾燥無水跡象" }
+            { "id": "no_drainage", "label": "無排水設施" }
+          ]
+        },
+        {
+          "category_id": "vegetation",
+          "category_name": "植被狀況",
+          "source": "photo",
+          "tier": "ai_prefill",
+          "ai_capability": "low",
+          "multi_select": true,
+          "tags": [
+            { "id": "intact", "label": "完好(未受影響)" },
+            { "id": "partial_loss", "label": "部分喪失" },
+            { "id": "stripped", "label": "大面積剥離" },
+            { "id": "tilted_trees", "label": "樹木傾斜" },
+            { "id": "fallen_trees", "label": "倒木" },
+            { "id": "root_exposed", "label": "根系裸露" },
+            { "id": "regrowth", "label": "新生植被" }
+          ],
+          "exclusion_tags": [
+            { "id": "no_vegetation", "label": "無植被(裸露)" }
           ]
         },
         {
@@ -1420,124 +1579,54 @@
     },
     "P4": {
       "type_id": "P4",
-      "name": "道路影響照",
+      "name": "邊坡災害近照",
       "required": true,
       "max_photos": 3,
       "photo_tags": [
         {
-          "category_id": "shooting_position",
-          "category_name": "拍攝位置",
+          "category_id": "visible_damage",
+          "category_name": "易致災狀況",
           "source": "photo",
           "tier": "required",
           "ai_capability": "high",
-          "multi_select": false,
-          "tags": [
-            { "id": "panoramic_upslope", "label": "全景往上邊坡" },
-            { "id": "panoramic_downslope", "label": "全景往下邊坡" },
-            { "id": "panoramic_lateral", "label": "全景側向" },
-            { "id": "aerial_view", "label": "鳥瞰(高處俯拍)" },
-            { "id": "from_road", "label": "從道路側拍攝" },
-            { "id": "from_opposite", "label": "從對面拍攝" },
-            { "id": "from_below", "label": "從下方拍攝" }
-          ],
-          "exclusion_tags": []
-        },
-        {
-          "category_id": "overall_extent",
-          "category_name": "崩塌範圍",
-          "source": "photo",
-          "tier": "required",
-          "ai_capability": "medium",
-          "multi_select": false,
-          "tags": [
-            { "id": "localized", "label": "局部(<100m²)" },
-            { "id": "section", "label": "區段(100-500m²)" },
-            { "id": "large", "label": "大範圍(500-2,000m²)" },
-            { "id": "extensive", "label": "大面積(2,000-10,000m²)" },
-            { "id": "massive", "label": "超大規模(>10,000m²)" }
-          ],
-          "exclusion_tags": [
-            { "id": "cannot_estimate", "label": "無法估計" }
-          ]
-        },
-        {
-          "category_id": "existing_protection",
-          "category_name": "坡面既有保護",
-          "source": "photo",
-          "tier": "required",
-          "ai_capability": "medium",
           "multi_select": true,
           "tags": [
-            { "id": "shotcrete", "label": "噴凝土" },
-            { "id": "concrete_frame", "label": "格框植生" },
-            { "id": "rock_bolt", "label": "岩栓" },
-            { "id": "ground_anchor", "label": "地錨" },
-            { "id": "soil_nail", "label": "土釘" },
-            { "id": "gabion", "label": "蛇籠" },
-            { "id": "rock_net", "label": "落石防護網" },
-            { "id": "retaining_wall", "label": "擋土牆" },
-            { "id": "drainage_well", "label": "排水井" },
-            { "id": "horizontal_drain", "label": "水平排水管" },
-            { "id": "vegetation_eng", "label": "植生工法" },
-            { "id": "geotextile", "label": "地工織物" }
+            { "id": "erosion_rill", "label": "表面沖蝕(細溝)" },
+            { "id": "erosion_gully", "label": "沖蝕溝" },
+            { "id": "tension_crack", "label": "張力裂縫" },
+            { "id": "scarp", "label": "崩崖" },
+            { "id": "subsidence", "label": "地表沉陷" },
+            { "id": "heave", "label": "地表隆起" },
+            { "id": "tree_tilt", "label": "樹木傾斜" },
+            { "id": "seepage", "label": "滲水" },
+            { "id": "slope_bulge", "label": "邊坡鼓脹" },
+            { "id": "hanging_rock", "label": "落石倒懸" },
+            { "id": "isolated_rock_pile", "label": "孤石堆積" },
+            { "id": "slope_debris_deposit", "label": "邊坡有堆積物" }
           ],
           "exclusion_tags": [
-            { "id": "no_protection", "label": "無保護設施" },
-            { "id": "uncertain", "label": "不確定" }
+            { "id": "no_visible_damage", "label": "無明顯損壞" }
           ]
         },
         {
-          "category_id": "slope_gradient",
-          "category_name": "邊坡坡度概估",
-          "source": "photo",
-          "tier": "required",
-          "ai_capability": "low",
-          "multi_select": false,
-          "tags": [
-            { "id": "gentle", "label": "緩坡(<30°)" },
-            { "id": "moderate", "label": "中坡(30-45°)" },
-            { "id": "steep", "label": "陡坡(45-60°)" },
-            { "id": "very_steep", "label": "極陡(60-75°)" },
-            { "id": "cliff", "label": "近垂直(>75°)" },
-            { "id": "variable", "label": "坡度不一" }
-          ],
-          "exclusion_tags": [
-            { "id": "cannot_determine", "label": "無法判斷" }
-          ]
-        },
-        {
-          "category_id": "collapse_type",
-          "category_name": "崩塌類型",
-          "source": "photo",
-          "tier": "required",
-          "ai_capability": "high",
-          "multi_select": false,
-          "tags": [
-            { "id": "rockfall", "label": "落石" },
-            { "id": "debris_avalanche", "label": "岩屑崩滑" },
-            { "id": "rock_mass_slide", "label": "岩體滑動" },
-            { "id": "debris_flow", "label": "土石流" }
-          ],
-          "exclusion_tags": [
-            { "id": "cannot_determine", "label": "無法判斷" }
-          ]
-        },
-        {
-          "category_id": "damage_extent",
-          "category_name": "道路受災害影響範圍",
+          "category_id": "water_signs",
+          "category_name": "水的跡象",
           "source": "photo",
           "tier": "ai_prefill",
           "ai_capability": "medium",
-          "multi_select": false,
+          "multi_select": true,
           "tags": [
-            { "id": "lt_5m", "label": "小於5m" },
-            { "id": "5_20m", "label": "5-20m" },
-            { "id": "20_50m", "label": "20-50m" },
-            { "id": "50_100m", "label": "50-100m" },
-            { "id": "gt_100m", "label": "大於100m" }
+            { "id": "seepage", "label": "滲水" },
+            { "id": "spring", "label": "湧水" },
+            { "id": "wet_surface", "label": "表面潮濕" },
+            { "id": "runoff", "label": "逕流沖刷" },
+            { "id": "ponding", "label": "積水" },
+            { "id": "mud_water", "label": "泥水" },
+            { "id": "waterfall", "label": "瀑布狀水流" },
+            { "id": "erosion_channel", "label": "沖蝕溝槽" }
           ],
           "exclusion_tags": [
-            { "id": "cannot_estimate", "label": "無法估計" }
+            { "id": "dry", "label": "乾燥無水跡象" }
           ]
         },
         {
@@ -1558,48 +1647,6 @@
           ],
           "exclusion_tags": [
             { "id": "no_slide_surface", "label": "未見滑動面" }
-          ]
-        },
-        {
-          "category_id": "vegetation",
-          "category_name": "植被狀況",
-          "source": "photo",
-          "tier": "ai_prefill",
-          "ai_capability": "low",
-          "multi_select": true,
-          "tags": [
-            { "id": "intact", "label": "完好(未受影響)" },
-            { "id": "partial_loss", "label": "部分喪失" },
-            { "id": "stripped", "label": "大面積剥離" },
-            { "id": "tilted_trees", "label": "樹木傾斜" },
-            { "id": "fallen_trees", "label": "倒木" },
-            { "id": "root_exposed", "label": "根系裸露" },
-            { "id": "regrowth", "label": "新生植被" }
-          ],
-          "exclusion_tags": [
-            { "id": "no_vegetation", "label": "無植被(裸露)" }
-          ]
-        },
-        {
-          "category_id": "geology_estimate",
-          "category_name": "邊坡地質概估",
-          "source": "photo",
-          "tier": "ai_prefill",
-          "ai_capability": "low",
-          "multi_select": false,
-          "tags": [
-            { "id": "rock_hard", "label": "硬岩(砂岩石灰岩等)" },
-            { "id": "rock_soft", "label": "軟岩(泥岩頁岩)" },
-            { "id": "rock_metamorphic", "label": "變質岩(片岩板岩)" },
-            { "id": "colluvium", "label": "崩積層" },
-            { "id": "alluvium", "label": "沖積層" },
-            { "id": "laterite", "label": "紅土(礫石)層" },
-            { "id": "fill", "label": "人工填土" },
-            { "id": "weathered", "label": "嚴重風化層" },
-            { "id": "mixed", "label": "混合地質" }
-          ],
-          "exclusion_tags": [
-            { "id": "uncertain", "label": "不確定" }
           ]
         },
         {
@@ -1642,53 +1689,6 @@
           ],
           "exclusion_tags": [
             { "id": "normal", "label": "正常無異狀" }
-          ]
-        },
-        {
-          "category_id": "drainage",
-          "category_name": "排水設施狀況",
-          "source": "photo",
-          "tier": "ai_prefill",
-          "ai_capability": "medium",
-          "multi_select": true,
-          "tags": [
-            { "id": "side_ditch", "label": "邊溝" },
-            { "id": "intercept_ditch", "label": "截水溝" },
-            { "id": "down_drain", "label": "縱向排水溝" },
-            { "id": "horizontal_drain", "label": "水平排水管" },
-            { "id": "drainage_well", "label": "排水井" },
-            { "id": "culvert", "label": "涵管" },
-            { "id": "catch_basin", "label": "集水井" },
-            { "id": "blocked", "label": "部分堵塞" },
-            { "id": "severe_blocked", "label": "嚴重堵塞" },
-            { "id": "damaged", "label": "破損" }
-          ],
-          "exclusion_tags": [
-            { "id": "no_drainage", "label": "無排水設施" }
-          ]
-        },
-        {
-          "category_id": "surrounding",
-          "category_name": "周邊可見狀況",
-          "source": "photo",
-          "tier": "ai_prefill",
-          "ai_capability": "low",
-          "multi_select": true,
-          "tags": [
-            { "id": "building_nearby", "label": "鄰近建物" },
-            { "id": "road_above", "label": "上方有道路" },
-            { "id": "road_below", "label": "下方有道路" },
-            { "id": "farmland", "label": "農田" },
-            { "id": "retaining_wall", "label": "擋土設施" },
-            { "id": "river_nearby", "label": "鄰近河川" },
-            { "id": "utility_line", "label": "管線設施" },
-            { "id": "bridge_nearby", "label": "鄰近橋梁" },
-            { "id": "monitoring_device", "label": "監測儀器" },
-            { "id": "construction_ongoing", "label": "施工中" },
-            { "id": "other_slope_failure", "label": "鄰近其他邊坡破壞" }
-          ],
-          "exclusion_tags": [
-            { "id": "no_abnormal", "label": "無其他異常" }
           ]
         },
         {
@@ -2020,7 +2020,7 @@
     },
     "P4": {
       "type_id": "P4",
-      "name": "道路影響照",
+      "name": "邊坡災害近照",
       "required": true,
       "max_photos": 3,
       "photo_tags": [

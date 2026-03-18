@@ -1,0 +1,5 @@
+Test point: WGS84 (121.6, 24.0) -> EPSG:3826 (311045.71, 2655153.14)
+Faults within 500m: 0 (with name: 0)
+Folds within 500m: 0 (with name: 0)
+Geology at point: 1
+  沖積層 | 礫石、砂及粘土

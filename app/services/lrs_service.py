@@ -389,7 +389,7 @@ class LRSService:
 
     @staticmethod
     def _parse_milepost_km(text: str) -> float | None:
-        value = text.strip()
+        value = text.strip().upper()
         if not value:
             return None
 

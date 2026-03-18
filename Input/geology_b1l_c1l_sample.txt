@@ -1,0 +1,4 @@
+=== b1l (斷層線) Records: 1590, CRS: EPSG:3826 ===
+Columns: ['OBJECTID', 'FNODE_', 'TNODE_', 'LPOLY_', 'RPOLY_', 'LENGTH', 'MAP_ID', 'LAYER_ID', 'DATA_ID', 'CODE', 'FA_C', 'FA_E', 'LYNOTE_C', 'LYNOTE_E', 'NAME_C', 'NAME_E', 'NOTE_C', 'NOTE_E', 'ID', 'NAME', 'TYPE', 'SHAPE_Leng', 'FO_E', 'FID_', 'TYPE_C', 'SHAPE_LE_1', 'SHAPE_Le_2', 'geometry']
+
+Unique NAME_C (non-empty):

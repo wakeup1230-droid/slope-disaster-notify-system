@@ -313,8 +313,8 @@ class FlexBuilder:
         p1p4_prompts = {
             "P1": "記錄災點整體環境與現場概況。",
             "P2": "拍攝邊坡整體型態、崩塌範圍與既有保護設施。",
-            "P3": "拍攝目前會再致災的邊坡細節，清楚呈現損壞狀況。",
-            "P4": "記錄道路路面狀況與影響範圍。",
+            "P3": "記錄道路路面狀況與影響範圍。",
+            "P4": "拍攝目前會再致災的邊坡細節，清楚呈現損壞狀況。",
         }
         for photo_type in ["P1", "P2", "P3", "P4"]:
             info = type_specific.get(photo_type) or common.get(photo_type, {})

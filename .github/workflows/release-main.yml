@@ -1,0 +1,21 @@
+name: Release Main
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy placeholder
+        run: |
+          echo "Put your deployment command here"
+          echo "Example: ./scripts/deploy_prod.sh"

@@ -1,0 +1,75 @@
+=== a1p unique NAME_C values ===
+  沖積層
+  碧綠層
+  白楊片岩
+  谷園片岩
+  大禹嶺層
+  廬山層清水湖段
+  都鑾山層
+  東澳片岩
+  打馬燕變質基性或超基性岩
+  階地堆積層
+  八里灣層水璉段
+  八里灣層泰源段
+  港口石灰岩
+  變質基性岩
+  蛇紋岩
+  九曲大理岩
+  南澳嶺片岩
+  飯包尖山片麻岩
+  角閃岩
+  黑岩山層
+  高嶺片岩
+  八里灣層
+  開南崗片麻岩
+  楓樹山角閃岩
+  得克利片麻岩
+  源頭山片麻岩
+  米崙礫岩
+  天長大理岩
+  廬山層
+  大觀片岩
+
+=== a1p unique NOTE_C values ===
+  礫石、砂及泥
+  石墨片岩與石英雲母片岩
+  綠色片岩、矽質片岩、層狀大理岩
+  千枚岩、雲母片岩、石英雲母片岩
+  厚層砂岩
+  厚層變質砂岩，偶夾薄層板岩
+  火山岩流、火山角礫岩與再積性火山碎屑岩
+  石墨片岩及石英雲母片岩,夾綠泥石片岩及變質燧石
+  變質基性或超基性岩
+  黏土、砂及礫
+  礫岩夾厚層砂岩
+  砂頁岩互層
+  抱球藻、有孔蟲與珊瑚石灰岩
+  安山岩質崩移岩塊
+  蛇紋岩
+  層狀大理岩
+  石英片岩或副片麻岩
+  片麻岩
+  角閃岩
+  板岩、千枚岩、變質砂岩及變質石灰岩
+  透鏡狀大理岩體
+  泥岩夾礫岩
+  板岩或千枚岩，偶夾薄層變質砂岩
+  角閃岩及角閃石片岩
+  片麻岩及花崗片麻岩
+  所夾之變質基性岩
+  所夾之硬綠泥石岩透鏡體
+  片麻岩及變質似花岡岩類
+  千枚岩、變質砂岩及變質燧石
+  石英雲母片岩
+
+=== a1p sample rows ===
+  [0] NAME_C=沖積層 | NAME_E=Alluvium | NOTE_C=礫石、砂及泥 | NOTE_E=Gravel, sand and mud | ABBREV=a
+  [1] NAME_C=碧綠層 | NAME_E=Wuta Schist | NOTE_C=石墨片岩與石英雲母片岩 | NOTE_E=Graphite schist and quartz-mica schist | ABBREV=Pu
+  [2] NAME_C=白楊片岩 | NAME_E=Paiyang Schist | NOTE_C=綠色片岩、矽質片岩、層狀大理岩 | NOTE_E=Green schist, siliceous schist, with marble interlayering | ABBREV=Py
+  [3] NAME_C=白楊片岩 | NAME_E=Paiyang Schist | NOTE_C=綠色片岩、矽質片岩、層狀大理岩 | NOTE_E=Green schist, siliceous schist, with marble interlayering | ABBREV=Py
+  [4] NAME_C=白楊片岩 | NAME_E=Paiyang Schist | NOTE_C=綠色片岩、矽質片岩、層狀大理岩 | NOTE_E=Green schist, siliceous schist, with marble interlayering | ABBREV=Py
+  [5] NAME_C=白楊片岩 | NAME_E=Paiyang Schist | NOTE_C=綠色片岩、矽質片岩、層狀大理岩 | NOTE_E=Green schist, siliceous schist, with marble interlayering | ABBREV=Py
+  [6] NAME_C=谷園片岩 | NAME_E=Kuyuan Schist | NOTE_C=千枚岩、雲母片岩、石英雲母片岩 | NOTE_E=Phyllite, micaceous schist and quartz-mica schist | ABBREV=Ku
+  [7] NAME_C=白楊片岩 | NAME_E=Paiyang Schist | NOTE_C=綠色片岩、矽質片岩、層狀大理岩 | NOTE_E=Green schist, siliceous schist, with marble interlayering | ABBREV=Py
+  [8] NAME_C=白楊片岩 | NAME_E=Paiyang Schist | NOTE_C=綠色片岩、矽質片岩、層狀大理岩 | NOTE_E=Green schist, siliceous schist, with marble interlayering | ABBREV=Py
+  [9] NAME_C=碧綠層 | NAME_E=Wuta Schist | NOTE_C=石墨片岩與石英雲母片岩 | NOTE_E=Graphite schist and quartz-mica schist | ABBREV=Pu

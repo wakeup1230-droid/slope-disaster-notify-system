@@ -192,3 +192,22 @@ class NotificationService:
             lines.append("- 無資料")
 
         return await self.notify_user(manager_id, "\n".join(lines))
+
+    async def notify_case_deleted(
+        self,
+        case_id: str,
+        district_name: str,
+        road: str,
+        actor_name: str,
+        manager_ids: list[str],
+    ) -> int:
+        """Notify managers that a case has been deleted."""
+        message = (
+            f"\u3010\u6848\u4ef6\u522a\u9664\u901a\u77e5\u3011\n"
+            f"\u6848\u4ef6\u7de8\u865f\uff1a{case_id}\n"
+            f"\u5de5\u52d9\u6bb5\uff1a{district_name}\n"
+            f"\u9053\u8def\uff1a{road or '\u672a\u586b\u5beb'}\n"
+            f"\u522a\u9664\u4eba\u54e1\uff1a{actor_name}\n"
+            f"\u8a72\u6848\u4ef6\u5df2\u5f9e\u7cfb\u7d71\u4e2d\u6c38\u4e45\u522a\u9664\uff0c\u5be9\u6838\u5f85\u8fa6\u5df2\u540c\u6b65\u66f4\u65b0\u3002"
+        )
+        return await self.notify_managers(message, manager_ids)

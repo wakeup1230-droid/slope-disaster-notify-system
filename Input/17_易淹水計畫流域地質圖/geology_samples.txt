@@ -1,0 +1,58 @@
+=== a1p (地質) - unique layers ===
+Total records: 5967, unique NAME_C: 151
+  沖積層 | 礫石、砂及泥
+  碧綠層 | 石墨片岩與石英雲母片岩
+  白楊片岩 | 綠色片岩、矽質片岩、層狀大理岩
+  谷園片岩 | 千枚岩、雲母片岩、石英雲母片岩
+  大禹嶺層 | 厚層砂岩
+  廬山層清水湖段 | 厚層變質砂岩，偶夾薄層板岩
+  都鑾山層 | 火山岩流、火山角礫岩與再積性火山碎屑岩
+  東澳片岩 | 石墨片岩及石英雲母片岩,夾綠泥石片岩及變質燧石
+  打馬燕變質基性或超基性岩 | 變質基性或超基性岩
+  階地堆積層 | 黏土、砂及礫
+
+=== b1l (斷層) - unique faults ===
+Total records: 1590, with NAME_C: 1232, unique: 299
+  萬歲山斷層 | Wansueyshan Fault | TYPE=nan
+  奇美斷層 | Chimei Fault | TYPE=逆斷層
+  奇萊山斷層 | Chilaishan Fault | TYPE=nan
+  眉溪斷層 | nan | TYPE=nan
+  古魯斷層 | Kulu Fault | TYPE=nan
+  新社斷層 | Xinshe Fault | TYPE=低角度逆斷層-位置確定；鋸齒在上盤
+  馬錫山斷層 | Maxishan Fault | TYPE=逆斷層-位置確定；鋸齒在上盤
+  嶺頂斷層 | Linding Fault | TYPE=第二類掩覆
+  瑞穗斷層 | Ruisui Fault | TYPE=第一類掩覆
+  鹿皮溪斷層 | Lupihsi Fault | TYPE=nan
+  清水嶺斷層 | Qingshuiling Fault | TYPE=逆斷層-位置確定；鋸齒在上盤
+  望溪斷層 | Wangxi Fault | TYPE=逆斷層-位置確定；鋸齒在上盤
+  王武塔山斷層 | Wangwutashan Fault | TYPE=高角度正斷層-位置確定；方形在上盤
+  壽豐斷層 | nan | TYPE=nan
+  蕃薯寮坑斷層 | Fanshuliaokeng Fault | TYPE=nan
+  萬榮斷層 | nan | TYPE=nan
+  大禹嶺斷層 | Tayuling Fault | TYPE=nan
+  關原斷層 | Kuanyuan Fault | TYPE=nan
+  狄_山斷層 | Tipanshan Fault | TYPE=nan
+  五甲斷層 | Wuchia Fault | TYPE=nan
+
+=== c1l (褶皺) - unique folds ===
+Total records: 1247, with NAME_C: 639, unique: 225
+  丹大山複背斜 | NOTE_C=nan | LYNOTE_C=褶皺
+  倫太文山複背斜 | NOTE_C=nan | LYNOTE_C=褶皺
+  奇美向斜 | NOTE_C=向斜 | LYNOTE_C=褶皺
+  豐富背斜 | NOTE_C=背斜 | LYNOTE_C=褶皺
+  高登複向斜 | NOTE_C=nan | LYNOTE_C=褶皺
+  飯包尖山複背斜 | NOTE_C=nan | LYNOTE_C=褶皺
+  大禹嶺複向斜 | NOTE_C=nan | LYNOTE_C=褶皺
+  芳北山複向斜 | NOTE_C=nan | LYNOTE_C=褶皺
+  洛韶複向斜 | NOTE_C=nan | LYNOTE_C=褶皺
+  丹大山複向斜 | NOTE_C=nan | LYNOTE_C=褶皺
+  水璉向斜 | NOTE_C=Shuilien Syncline | LYNOTE_C=褶皺
+  水璉背斜 | NOTE_C=Shuilien Anticline | LYNOTE_C=褶皺
+  蕃薯寮坑向斜 | NOTE_C=Fanshuliaokeng Syncline | LYNOTE_C=褶皺
+  鹽寮向斜 | NOTE_C=Yenliao Syncline | LYNOTE_C=褶皺
+  和仁複背斜 | NOTE_C=複背斜軸 | LYNOTE_C=褶皺
+  天祥複向斜 | NOTE_C=複向斜軸 | LYNOTE_C=褶皺
+  榮山複向斜 | NOTE_C=複向斜軸 | LYNOTE_C=褶皺
+  三錐複背斜 | NOTE_C=複背斜軸 | LYNOTE_C=褶皺
+  清水複向斜 | NOTE_C=複向斜軸 | LYNOTE_C=褶皺
+  谷園複背斜 | NOTE_C=Kuyuan Anticlinorium | LYNOTE_C=褶皺

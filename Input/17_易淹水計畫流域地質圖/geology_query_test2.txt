@@ -1,0 +1,10 @@
+Test point near known fault: WGS84 (121.672667, 24.523532)
+EPSG:3826: (318159.51, 2713170.91)
+
+=== Geology (a1p) ===
+  東澳片岩 | 石墨片岩及石英雲母片岩,夾綠泥石片岩及變質燧石
+
+=== Faults within 500m (b1l) === count=1
+  萬歲山斷層 | Wansueyshan Fault | TYPE=nan
+
+=== Folds within 500m (c1l) === count=0

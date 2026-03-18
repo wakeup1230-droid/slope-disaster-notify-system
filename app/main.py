@@ -17,12 +17,16 @@ from app.routers.health import router as health_router
 from app.routers.line_webhook import router as line_webhook_router
 from app.routers.vendor_api import router as vendor_router
 from app.routers.statistics import router as statistics_router
+from app.routers.users import router as users_router
+from app.routers.word_download import router as word_download_router
 from app.services.audit_logger import AuditLogger
 from app.services.case_manager import CaseManager
 from app.services.case_store import CaseStore
 from app.services.evidence_store import EvidenceStore
 from app.services.image_processor import ImageProcessor
 from app.services.geology_service import GeologyService
+from app.services.admin_boundary_service import AdminBoundaryService
+from app.services.national_park_service import NationalParkService
 from app.services.lrs_service import LRSService
 from app.services.user_store import UserStore
 
@@ -64,6 +68,21 @@ def create_app() -> FastAPI:
         except Exception as exc:
             logger.warning("Geology data not loaded: %s", exc)
 
+        admin_boundary_service = None
+        try:
+            admin_boundary_service = AdminBoundaryService(
+                shapefile_dir=Path("Input/行政區邊界"),
+            )
+        except Exception as exc:
+            logger.warning("Admin boundary data not loaded: %s", exc)
+
+        national_park_service = None
+        try:
+            national_park_service = NationalParkService(
+                shapefile_dir=Path("Input/國家公園邊界"),
+            )
+        except Exception as exc:
+            logger.warning("National park data not loaded: %s", exc)
         line_session_store_cls = _load_symbol("app.services.line_session", "LineSessionStore")
         notification_service_cls = _load_symbol(
             "app.services.notification_service", "NotificationService"
@@ -81,6 +100,8 @@ def create_app() -> FastAPI:
             lrs_service=lrs_service,
             geology_service=geology_service,
             notification_service=notification_service,
+            admin_boundary_service=admin_boundary_service,
+            national_park_service=national_park_service,
         )
 
         app.state.settings = settings
@@ -94,6 +115,8 @@ def create_app() -> FastAPI:
         app.state.line_flow = line_flow
         app.state.notification_service = notification_service
         app.state.line_session_store = line_session_store
+        app.state.admin_boundary_service = admin_boundary_service
+        app.state.national_park_service = national_park_service
 
         if settings.bootstrap_admin_line_id:
             _ = user_store.ensure_bootstrap_admin(
@@ -114,7 +137,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="邊坡災害通報與資訊整合管理系統",
-        version="1.0.0-phase1",
+        version="1.1.0",
         lifespan=lifespan,
     )
 
@@ -131,6 +154,8 @@ def create_app() -> FastAPI:
     app.include_router(cases_router, prefix="/api/cases", tags=["Cases"])
     app.include_router(vendor_router, prefix="/vendor", tags=["Vendor API"])
     app.include_router(statistics_router, prefix="/api/statistics", tags=["Statistics"])
+    app.include_router(word_download_router, prefix="/api/cases", tags=["Word Download"])
+    app.include_router(users_router, prefix="/api/users", tags=["Users"])
 
     webgis_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webgis")
     if os.path.isdir(webgis_path):

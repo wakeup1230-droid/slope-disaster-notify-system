@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人員管理 — 邊坡災害通報與資訊整合管理系統</title>
+    <style>
+        :root {
+            --bg-panel: rgba(255, 255, 255, 0.94);
+            --bg-panel-strong: rgba(255, 255, 255, 0.98);
+            --bg-soft: #f4f7fb;
+            --text-main: #1b2a3a;
+            --text-sub: #4a5c6f;
+            --stroke: #d6e2ee;
+            --shadow: 0 16px 40px rgba(18, 40, 68, 0.16);
+            --pending: #ff9800;
+            --progress: #2196f3;
+            --closed: #4caf50;
+            --returned: #f44336;
+            --accent: #0f6fbd;
+            --danger: #c62828;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            width: 100%; min-height: 100%;
+            color: var(--text-main);
+            font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
+            background: radial-gradient(circle at 20% 10%, #d9eefc 0%, #f5f8fc 48%, #edf2f8 100%);
+        }
+
+        /* ─── Header ─── */
+        .header {
+            position: sticky; top: 0; z-index: 100;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 14px 24px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--stroke);
+            backdrop-filter: blur(10px);
+        }
+        .header h1 { font-size: 18px; font-weight: 800; letter-spacing: 0.4px; }
+        .header .meta { font-size: 12px; color: var(--text-sub); }
+
+        /* ─── Content ─── */
+        .content {
+            padding: 20px 24px 40px;
+            max-width: 1280px; margin: 0 auto;
+        }
+
+        /* ─── Cards ─── */
+        .card {
+            background: var(--bg-panel);
+            border: 1px solid var(--stroke);
+            border-radius: 14px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(8px);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        /* ─── Status Badges Row ─── */
+        .status-row {
+            display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px;
+        }
+        .status-badge {
+            flex: 1; min-width: 100px; text-align: center;
+            padding: 14px 8px; border-radius: 12px;
+            background: var(--bg-soft); border: 1px solid var(--stroke);
+            cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .status-badge:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        .status-badge.active-filter { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(15,111,189,0.2); }
+        .status-badge .num { font-size: 28px; font-weight: 800; line-height: 1.2; }
+        .status-badge .lbl { font-size: 12px; color: var(--text-sub); margin-top: 4px; }
+
+        /* ─── Filter Bar ─── */
+        .filter-bar {
+            display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; align-items: center;
+        }
+        .styled-select {
+            padding: 8px 14px; font-size: 14px; border-radius: 10px;
+            border: 1px solid var(--stroke); background: var(--bg-panel-strong);
+            color: var(--text-main); font-family: inherit; cursor: pointer;
+            min-width: 160px;
+        }
+        .search-input {
+            padding: 8px 14px; font-size: 14px; border-radius: 10px;
+            border: 1px solid var(--stroke); background: var(--bg-panel-strong);
+            color: var(--text-main); font-family: inherit;
+            flex: 1; min-width: 180px;
+        }
+        .search-input::placeholder { color: var(--text-sub); opacity: 0.7; }
+
+        /* ─── Data Table ─── */
+        .data-table {
+            width: 100%; border-collapse: collapse; font-size: 13px;
+        }
+        .data-table th {
+            text-align: left; padding: 8px 12px; font-weight: 700;
+            color: var(--text-sub); border-bottom: 2px solid var(--stroke);
+            white-space: nowrap;
+        }
+        .data-table td {
+            padding: 8px 12px; border-bottom: 1px solid var(--stroke);
+            vertical-align: middle;
+        }
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table tr:hover { background: var(--bg-soft); }
+
+        /* ─── Badges ─── */
+        .badge {
+            display: inline-block; padding: 2px 10px; border-radius: 20px;
+            font-size: 12px; font-weight: 600; white-space: nowrap;
+        }
+        .badge-pending { background: #fff3e0; color: #e65100; }
+        .badge-active { background: #e8f5e9; color: #2e7d32; }
+        .badge-suspended { background: #ffebee; color: #c62828; }
+        .badge-rejected { background: #eceff1; color: #546e7a; }
+        .badge-manager { background: #e3f2fd; color: #0d47a1; }
+        .badge-user { background: #eceff1; color: #546e7a; }
+
+        /* ─── Buttons ─── */
+        .btn {
+            display: inline-block; padding: 6px 14px; border-radius: 8px;
+            font-size: 12px; font-weight: 600; font-family: inherit;
+            border: none; cursor: pointer; white-space: nowrap;
+            transition: opacity 0.15s, transform 0.1s;
+        }
+        .btn:hover { opacity: 0.85; }
+        .btn:active { transform: scale(0.97); }
+        .btn-approve { background: var(--closed); color: #fff; }
+        .btn-reject { background: var(--returned); color: #fff; }
+        .btn-suspend { background: var(--returned); color: #fff; }
+        .btn-restore { background: var(--closed); color: #fff; }
+        .btn-edit { background: var(--accent); color: #fff; }
+        .btn-delete { background: var(--danger); color: #fff; }
+        .btn-cancel { background: #eceff1; color: var(--text-main); }
+        .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+        /* ─── Mobile Card View ─── */
+        .user-cards { display: none; }
+        .user-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--stroke);
+            border-radius: 14px; padding: 16px;
+            margin-bottom: 12px;
+        }
+        .user-card-header {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        .user-card-name { font-size: 15px; font-weight: 700; }
+        .user-card-sub { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
+        .user-card-info {
+            display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+            font-size: 13px; margin-bottom: 12px;
+        }
+        .user-card-info dt { color: var(--text-sub); font-weight: 600; }
+        .user-card-info dd { color: var(--text-main); }
+
+        /* ─── Empty / Loading / Error ─── */
+        .empty-state {
+            text-align: center; padding: 40px; color: var(--text-sub); font-size: 14px;
+        }
+        .loading {
+            text-align: center; padding: 40px;
+        }
+        .spinner {
+            display: inline-block; width: 32px; height: 32px;
+            border: 3px solid var(--stroke); border-top-color: var(--accent);
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-page {
+            display: flex; align-items: center; justify-content: center;
+            min-height: 60vh; text-align: center; padding: 40px;
+        }
+        .error-page .icon { font-size: 48px; margin-bottom: 16px; }
+        .error-page .msg { font-size: 16px; color: var(--text-sub); line-height: 1.6; }
+
+        /* ─── Modal ─── */
+        .modal-backdrop {
+            display: none; position: fixed; inset: 0; z-index: 200;
+            background: rgba(0,0,0,0.4); align-items: center; justify-content: center;
+            padding: 20px;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: var(--bg-panel-strong); border-radius: 14px;
+            padding: 24px; max-width: 420px; width: 100%;
+            box-shadow: var(--shadow);
+        }
+        .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+        .modal p { font-size: 14px; color: var(--text-sub); margin-bottom: 16px; line-height: 1.5; }
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+        .modal-actions .btn { padding: 8px 20px; font-size: 14px; }
+
+        /* ─── Toast ─── */
+        .toast-container {
+            position: fixed; top: 70px; right: 20px; z-index: 300;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+        .toast {
+            padding: 12px 20px; border-radius: 10px; font-size: 13px; font-weight: 600;
+            color: #fff; box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            animation: slideIn 0.3s ease;
+            max-width: 340px;
+        }
+        .toast-success { background: var(--closed); }
+        .toast-error { background: var(--returned); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* ─── Responsive ─── */
+        @media (max-width: 640px) {
+            .header { padding: 10px 16px; }
+            .header h1 { font-size: 15px; }
+            .content { padding: 14px 12px 32px; }
+            .card { padding: 14px; }
+            .status-badge .num { font-size: 22px; }
+            .filter-bar { flex-direction: column; }
+            .styled-select, .search-input { min-width: unset; width: 100%; }
+            .desktop-table { display: none; }
+            .user-cards { display: block; }
+            .toast-container { right: 12px; left: 12px; }
+            .toast { max-width: unset; }
+        }
+        @media (min-width: 641px) {
+            .desktop-table { display: block; }
+            .user-cards { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div>
+        <h1>👥 人員管理</h1>
+        <div class="meta" id="managerInfo"></div>
+    </div>
+    <div class="meta" id="userCount"></div>
+</div>
+
+<div class="content" id="mainContent" style="display:none;">
+    <!-- Status Summary -->
+    <div class="status-row" id="statusBadges">
+        <div class="status-badge" data-status="" onclick="filterByBadge('')">
+            <div class="num" id="countAll" style="color:var(--accent);">0</div>
+            <div class="lbl">全部</div>
+        </div>
+        <div class="status-badge" data-status="pending" onclick="filterByBadge('pending')">
+            <div class="num" id="countPending" style="color:var(--pending);">0</div>
+            <div class="lbl">待審核</div>
+        </div>
+        <div class="status-badge" data-status="active" onclick="filterByBadge('active')">
+            <div class="num" id="countActive" style="color:var(--closed);">0</div>
+            <div class="lbl">已啟用</div>
+        </div>
+        <div class="status-badge" data-status="suspended" onclick="filterByBadge('suspended')">
+            <div class="num" id="countSuspended" style="color:var(--returned);">0</div>
+            <div class="lbl">已停用</div>
+        </div>
+        <div class="status-badge" data-status="rejected" onclick="filterByBadge('rejected')">
+            <div class="num" id="countRejected" style="color:#78909c;">0</div>
+            <div class="lbl">已退件</div>
+        </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+        <select id="filterStatus" class="styled-select" onchange="applyFilters()">
+            <option value="">全部狀態</option>
+            <option value="pending">待審核</option>
+            <option value="active">已啟用</option>
+            <option value="suspended">已停用</option>
+            <option value="rejected">已退件</option>
+        </select>
+        <select id="filterDistrict" class="styled-select" onchange="applyFilters()">
+            <option value="">全部工務段</option>
+        </select>
+        <input type="text" id="searchInput" class="search-input" placeholder="🔍 搜尋姓名或 LINE 名稱..." oninput="applyFilters()">
+    </div>
+
+    <!-- Desktop Table -->
+    <div class="card desktop-table">
+        <div id="tableLoading" class="loading"><div class="spinner"></div></div>
+        <table class="data-table" id="userTable" style="display:none;">
+            <thead>
+                <tr>
+                    <th>姓名</th>
+                    <th>LINE 名稱</th>
+                    <th>工務段</th>
+                    <th>角色</th>
+                    <th>狀態</th>
+                    <th>註冊日期</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="userTableBody"></tbody>
+        </table>
+        <div id="tableEmpty" class="empty-state" style="display:none;">目前沒有符合條件的使用者</div>
+    </div>
+
+    <!-- Mobile Cards -->
+    <div class="user-cards" id="userCards">
+        <div id="cardsLoading" class="loading"><div class="spinner"></div></div>
+        <div id="cardsContainer"></div>
+        <div id="cardsEmpty" class="empty-state" style="display:none;">目前沒有符合條件的使用者</div>
+    </div>
+</div>
+
+<!-- Error Page (no token) -->
+<div class="error-page" id="errorPage" style="display:none;">
+    <div>
+        <div class="icon">🔒</div>
+        <div class="msg" id="errorMsg">無效的存取連結，請從 LINE 重新開啟。</div>
+    </div>
+</div>
+
+<!-- Modal: 修改角色 -->
+<div class="modal-backdrop" id="modalRole" onclick="closeModalOnBackdrop(event, 'modalRole')">
+    <div class="modal">
+        <h3>修改角色</h3>
+        <p id="roleModalTarget"></p>
+        <select id="roleSelect" class="styled-select" style="width:100%;">
+            <option value="user">使用者人員 (user)</option>
+            <option value="manager">決策人員 (manager)</option>
+        </select>
+        <div class="modal-actions">
+            <button class="btn btn-cancel" onclick="closeModal('modalRole')">取消</button>
+            <button class="btn btn-edit" onclick="submitRoleChange()">確認修改</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: 修改工務段 -->
+<div class="modal-backdrop" id="modalDistrict" onclick="closeModalOnBackdrop(event, 'modalDistrict')">
+    <div class="modal">
+        <h3>修改工務段</h3>
+        <p id="districtModalTarget"></p>
+        <select id="districtSelect" class="styled-select" style="width:100%;"></select>
+        <div class="modal-actions">
+            <button class="btn btn-cancel" onclick="closeModal('modalDistrict')">取消</button>
+            <button class="btn btn-edit" onclick="submitDistrictChange()">確認修改</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: 刪除確認 -->
+<div class="modal-backdrop" id="modalDelete" onclick="closeModalOnBackdrop(event, 'modalDelete')">
+    <div class="modal">
+        <h3>⚠️ 刪除帳號</h3>
+        <p id="deleteModalMsg"></p>
+        <div class="modal-actions">
+            <button class="btn btn-cancel" onclick="closeModal('modalDelete')">取消</button>
+            <button class="btn btn-delete" onclick="submitDelete()">確認刪除</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+/* ══════════════════════════════════════════
+   Constants & State
+   ══════════════════════════════════════════ */
+const params = new URLSearchParams(window.location.search);
+const TOKEN = params.get('token');
+
+let allUsers = [];
+let districts = [];
+let currentFilterStatus = '';
+let currentFilterDistrict = '';
+let currentSearchText = '';
+let pendingAction = {};
+
+const STATUS_LABELS = {
+    pending: '待審核',
+    active: '已啟用',
+    suspended: '已停用',
+    rejected: '已退件'
+};
+
+const ROLE_LABELS = {
+    manager: '決策人員',
+    user: '使用者人員'
+};
+
+/* ══════════════════════════════════════════
+   Init
+   ══════════════════════════════════════════ */
+(async function init() {
+    if (!TOKEN) {
+        showError('無效的存取連結，請從 LINE 重新開啟。');
+        return;
+    }
+
+    document.getElementById('mainContent').style.display = 'block';
+
+    try {
+        await Promise.all([loadDistricts(), loadUsers()]);
+    } catch (e) {
+        if (e.status === 401 || e.status === 403) {
+            showError('令牌已過期或權限不足，請從 LINE 重新取得連結。');
+        }
+    }
+})();
+
+/* ══════════════════════════════════════════
+   API Helpers
+   ══════════════════════════════════════════ */
+function apiUrl(path) {
+    const sep = path.includes('?') ? '&' : '?';
+    return path + sep + 'token=' + encodeURIComponent(TOKEN);
+}
+
+async function apiFetch(path, options) {
+    const resp = await fetch(apiUrl(path), options);
+    if (resp.status === 401 || resp.status === 403) {
+        const err = new Error('Auth failed');
+        err.status = resp.status;
+        showError('令牌已過期或權限不足，請從 LINE 重新取得連結。');
+        throw err;
+    }
+    if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.detail || '操作失敗');
+    }
+    return resp.json();
+}
+
+/* ══════════════════════════════════════════
+   Data Loading
+   ══════════════════════════════════════════ */
+async function loadDistricts() {
+    districts = await apiFetch('/api/users/districts');
+    const sel = document.getElementById('filterDistrict');
+    const dSel = document.getElementById('districtSelect');
+    districts.forEach(d => {
+        sel.innerHTML += '<option value="' + d.id + '">' + d.name + '</option>';
+        dSel.innerHTML += '<option value="' + d.id + '" data-name="' + d.name + '">' + d.name + '</option>';
+    });
+}
+
+async function loadUsers() {
+    allUsers = await apiFetch('/api/users');
+    updateCounts();
+    applyFilters();
+    hideLoading();
+}
+
+/* ══════════════════════════════════════════
+   Counts & Filters
+   ══════════════════════════════════════════ */
+function updateCounts() {
+    let counts = { pending: 0, active: 0, suspended: 0, rejected: 0 };
+    allUsers.forEach(u => { if (counts[u.status] !== undefined) counts[u.status]++; });
+    document.getElementById('countAll').textContent = allUsers.length;
+    document.getElementById('countPending').textContent = counts.pending;
+    document.getElementById('countActive').textContent = counts.active;
+    document.getElementById('countSuspended').textContent = counts.suspended;
+    document.getElementById('countRejected').textContent = counts.rejected;
+    document.getElementById('userCount').textContent = '共 ' + allUsers.length + ' 位使用者';
+}
+
+function filterByBadge(status) {
+    currentFilterStatus = status;
+    document.getElementById('filterStatus').value = status;
+    updateBadgeHighlight();
+    applyFilters();
+}
+
+function updateBadgeHighlight() {
+    document.querySelectorAll('.status-badge').forEach(b => {
+        b.classList.toggle('active-filter', b.dataset.status === currentFilterStatus);
+    });
+}
+
+function applyFilters() {
+    currentFilterStatus = document.getElementById('filterStatus').value;
+    currentFilterDistrict = document.getElementById('filterDistrict').value;
+    currentSearchText = document.getElementById('searchInput').value.trim().toLowerCase();
+    updateBadgeHighlight();
+
+    const filtered = allUsers.filter(u => {
+        if (currentFilterStatus && u.status !== currentFilterStatus) return false;
+        if (currentFilterDistrict && u.district_id !== currentFilterDistrict) return false;
+        if (currentSearchText) {
+            const name = (u.real_name || '').toLowerCase();
+            const display = (u.display_name || '').toLowerCase();
+            if (!name.includes(currentSearchText) && !display.includes(currentSearchText)) return false;
+        }
+        return true;
+    });
+
+    renderTable(filtered);
+    renderCards(filtered);
+}
+
+/* ══════════════════════════════════════════
+   Rendering — Desktop Table
+   ══════════════════════════════════════════ */
+function renderTable(users) {
+    const tbody = document.getElementById('userTableBody');
+    const table = document.getElementById('userTable');
+    const empty = document.getElementById('tableEmpty');
+
+    if (users.length === 0) {
+        table.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+    table.style.display = 'table';
+    empty.style.display = 'none';
+
+    tbody.innerHTML = users.map(u => {
+        return '<tr>' +
+            '<td><strong>' + esc(u.real_name || '--') + '</strong></td>' +
+            '<td>' + esc(u.display_name || '--') + '</td>' +
+            '<td>' + esc(u.district_name || '--') + '</td>' +
+            '<td>' + roleBadge(u.role) + '</td>' +
+            '<td>' + statusBadge(u.status) + '</td>' +
+            '<td>' + fmtDate(u.registered_at) + '</td>' +
+            '<td><div class="btn-group">' + actionButtons(u) + '</div></td>' +
+        '</tr>';
+    }).join('');
+}
+
+/* ══════════════════════════════════════════
+   Rendering — Mobile Cards
+   ══════════════════════════════════════════ */
+function renderCards(users) {
+    const container = document.getElementById('cardsContainer');
+    const empty = document.getElementById('cardsEmpty');
+
+    if (users.length === 0) {
+        container.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+    }
+    empty.style.display = 'none';
+
+    container.innerHTML = users.map(u => {
+        return '<div class="user-card">' +
+            '<div class="user-card-header">' +
+                '<div>' +
+                    '<div class="user-card-name">' + esc(u.real_name || '--') + '</div>' +
+                    '<div class="user-card-sub">' + esc(u.display_name || '') + '</div>' +
+                '</div>' +
+                '<div>' + statusBadge(u.status) + '</div>' +
+            '</div>' +
+            '<div class="user-card-info">' +
+                '<dt>工務段</dt><dd>' + esc(u.district_name || '--') + '</dd>' +
+                '<dt>角色</dt><dd>' + roleBadge(u.role) + '</dd>' +
+                '<dt>註冊日期</dt><dd>' + fmtDate(u.registered_at) + '</dd>' +
+                (u.approved_at ? '<dt>核准日期</dt><dd>' + fmtDate(u.approved_at) + '</dd>' : '') +
+                (u.approved_by ? '<dt>核准者</dt><dd>' + esc(u.approved_by) + '</dd>' : '') +
+            '</div>' +
+            '<div class="btn-group">' + actionButtons(u) + '</div>' +
+        '</div>';
+    }).join('');
+}
+
+/* ══════════════════════════════════════════
+   Helpers — Badges & Buttons
+   ══════════════════════════════════════════ */
+function statusBadge(status) {
+    return '<span class="badge badge-' + status + '">' + (STATUS_LABELS[status] || status) + '</span>';
+}
+
+function roleBadge(role) {
+    return '<span class="badge badge-' + role + '">' + (ROLE_LABELS[role] || role) + '</span>';
+}
+
+function actionButtons(u) {
+    let html = '';
+    if (u.status === 'pending') {
+        html += '<button class="btn btn-approve" onclick="doAction(\'approve\',\'' + u.user_id + '\')">核准</button>';
+        html += '<button class="btn btn-reject" onclick="doAction(\'reject\',\'' + u.user_id + '\')">退件</button>';
+    }
+    if (u.status === 'active') {
+        html += '<button class="btn btn-suspend" onclick="doAction(\'suspend\',\'' + u.user_id + '\')">停用</button>';
+        html += '<button class="btn btn-edit" onclick="openRoleModal(\'' + u.user_id + '\',\'' + esc(u.real_name || u.display_name) + '\',\'' + u.role + '\')">修改角色</button>';
+        html += '<button class="btn btn-edit" onclick="openDistrictModal(\'' + u.user_id + '\',\'' + esc(u.real_name || u.display_name) + '\',\'' + u.district_id + '\')">修改工務段</button>';
+    }
+    if (u.status === 'suspended') {
+        html += '<button class="btn btn-restore" onclick="doAction(\'restore\',\'' + u.user_id + '\')">恢復</button>';
+    }
+    html += '<button class="btn btn-delete" onclick="openDeleteModal(\'' + u.user_id + '\',\'' + esc(u.real_name || u.display_name) + '\')">刪除</button>';
+    return html;
+}
+
+function esc(s) {
+    if (!s) return '';
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function fmtDate(iso) {
+    if (!iso) return '--';
+    try {
+        const d = new Date(iso);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const h = String(d.getHours()).padStart(2, '0');
+        const min = String(d.getMinutes()).padStart(2, '0');
+        return y + '-' + m + '-' + day + ' ' + h + ':' + min;
+    } catch {
+        return iso;
+    }
+}
+
+/* ══════════════════════════════════════════
+   Actions — API Calls
+   ══════════════════════════════════════════ */
+async function doAction(action, userId) {
+    try {
+        const data = await apiFetch('/api/users/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action, user_id: userId })
+        });
+        showToast(data.user.real_name + '：' + actionLabel(action) + '成功', 'success');
+        await loadUsers();
+    } catch (e) {
+        showToast(e.message || '操作失敗', 'error');
+    }
+}
+
+function actionLabel(action) {
+    const map = { approve: '核准', reject: '退件', suspend: '停用', restore: '恢復' };
+    return map[action] || action;
+}
+
+/* ══════════════════════════════════════════
+   Modals — Role
+   ══════════════════════════════════════════ */
+function openRoleModal(userId, name, currentRole) {
+    pendingAction = { userId, name };
+    document.getElementById('roleModalTarget').textContent = '修改「' + name + '」的角色';
+    document.getElementById('roleSelect').value = currentRole;
+    openModal('modalRole');
+}
+
+async function submitRoleChange() {
+    const newRole = document.getElementById('roleSelect').value;
+    closeModal('modalRole');
+    try {
+        const data = await apiFetch('/api/users', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: pendingAction.userId, role: newRole })
+        });
+        showToast(pendingAction.name + '：角色已修改為' + ROLE_LABELS[newRole], 'success');
+        await loadUsers();
+    } catch (e) {
+        showToast(e.message || '修改角色失敗', 'error');
+    }
+}
+
+/* ══════════════════════════════════════════
+   Modals — District
+   ══════════════════════════════════════════ */
+function openDistrictModal(userId, name, currentDistrictId) {
+    pendingAction = { userId, name };
+    document.getElementById('districtModalTarget').textContent = '修改「' + name + '」的工務段';
+    document.getElementById('districtSelect').value = currentDistrictId;
+    openModal('modalDistrict');
+}
+
+async function submitDistrictChange() {
+    const sel = document.getElementById('districtSelect');
+    const districtId = sel.value;
+    const districtName = sel.options[sel.selectedIndex].dataset.name;
+    closeModal('modalDistrict');
+    try {
+        const data = await apiFetch('/api/users', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: pendingAction.userId,
+                district_id: districtId,
+                district_name: districtName
+            })
+        });
+        showToast(pendingAction.name + '：工務段已修改為' + districtName, 'success');
+        await loadUsers();
+    } catch (e) {
+        showToast(e.message || '修改工務段失敗', 'error');
+    }
+}
+
+/* ══════════════════════════════════════════
+   Modals — Delete
+   ══════════════════════════════════════════ */
+function openDeleteModal(userId, name) {
+    pendingAction = { userId, name };
+    document.getElementById('deleteModalMsg').textContent =
+        '確定要永久刪除「' + name + '」的帳號？此操作無法還原。';
+    openModal('modalDelete');
+}
+
+async function submitDelete() {
+    closeModal('modalDelete');
+    try {
+        const data = await apiFetch('/api/users', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: pendingAction.userId })
+        });
+        showToast(pendingAction.name + '：帳號已刪除', 'success');
+        await loadUsers();
+    } catch (e) {
+        showToast(e.message || '刪除失敗', 'error');
+    }
+}
+
+/* ══════════════════════════════════════════
+   Modal Helpers
+   ══════════════════════════════════════════ */
+function openModal(id) {
+    document.getElementById(id).classList.add('open');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+}
+
+function closeModalOnBackdrop(e, id) {
+    if (e.target === e.currentTarget) closeModal(id);
+}
+
+/* ══════════════════════════════════════════
+   Toast
+   ══════════════════════════════════════════ */
+function showToast(msg, type) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-' + (type || 'success');
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+/* ══════════════════════════════════════════
+   UI Helpers
+   ══════════════════════════════════════════ */
+function hideLoading() {
+    document.getElementById('tableLoading').style.display = 'none';
+    document.getElementById('cardsLoading').style.display = 'none';
+}
+
+function showError(msg) {
+    document.getElementById('mainContent').style.display = 'none';
+    document.getElementById('errorPage').style.display = 'flex';
+    document.getElementById('errorMsg').textContent = msg;
+}
+</script>
+</body>
+</html>

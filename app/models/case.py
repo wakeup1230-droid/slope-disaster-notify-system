@@ -26,11 +26,11 @@ class ProcessingStage(str, Enum):
 
 class ReviewStatus(str, Enum):
     """Business review status (manager-controlled)."""
+    DRAFT = "draft"
     PENDING_REVIEW = "pending_review"
     IN_PROGRESS = "in_progress"
     RETURNED = "returned"
     CLOSED = "closed"
-
 
 class Urgency(str, Enum):
     """Case urgency level."""
@@ -105,6 +105,14 @@ class SiteSurveyItem(BaseModel):
     checked: bool = False
     note: str = ""
 
+class CostBreakdownItem(BaseModel):
+    """A single line item in the cost breakdown."""
+    item_id: str = ""
+    item_name: str = ""
+    unit: str = ""
+    unit_price: Optional[float] = None
+    quantity: Optional[float] = None
+    amount: Optional[float] = Field(default=None, description="Amount in NTD (元); quantity * unit_price for items 1-4, or direct input for items 5-6")
 
 # --- Main Case Model ---
 
@@ -124,7 +132,7 @@ class Case(BaseModel):
 
     # --- Dual-track Status ---
     processing_stage: ProcessingStage = ProcessingStage.INGESTED
-    review_status: ReviewStatus = ReviewStatus.PENDING_REVIEW
+    review_status: ReviewStatus = ReviewStatus.DRAFT
     review_history: list[ReviewHistoryEntry] = Field(default_factory=list)
 
     # --- Location ---
@@ -135,6 +143,10 @@ class Case(BaseModel):
     coordinate_candidates: list[CoordinateCandidate] = Field(default_factory=list)
     primary_coordinate: Optional[CoordinateCandidate] = None
     geology_info: dict[str, Any] = Field(default_factory=dict, description="Auto-queried geology data: 地層, 岩性, 斷層, 褶皺")
+    county_name: str = Field(default="", description="縣市 from admin boundary query")
+    town_name: str = Field(default="", description="鄉鎮市區 from admin boundary query")
+    village_name: str = Field(default="", description="村里 from admin boundary query")
+    national_park: str = Field(default="", description="國家公園名稱, empty if not in national park")
 
     # --- Damage Classification ---
     damage_mode_category: str = ""
@@ -148,7 +160,35 @@ class Case(BaseModel):
     urgency: Urgency = Urgency.NORMAL
     related_event: str = Field(default="", description="Related event, e.g., typhoon name")
     estimated_cost: Optional[float] = Field(default=None, description="Optional estimated cost in NTD (萬元)")
+    cost_breakdown: list[CostBreakdownItem] = Field(default_factory=list, description="Structured cost breakdown items")
 
+    # --- P1: Auto-fill ---
+    reporting_agency: str = Field(default="交通部公路局北區養護工程分局", description="提報機關")
+    reporting_year: str = Field(default="", description="年度 (民國年)")
+
+    # --- P1+: Word document fields ---
+    project_name: str = Field(default="", description="工程名稱")
+    disaster_date: str = Field(default="", description="災害發生日期 (YYYY-MM-DD or 民國年月日)")
+    nearby_landmark: str = Field(default="", description="所在或鄰近之河溪、道路或顯著目標")
+    # --- P2: User selections ---
+    disaster_type: str = Field(default="", description="災害類型: 一般 | 專案")
+    processing_type: str = Field(default="", description="處理類型: 搶修 | 復建")
+    repeat_disaster: str = Field(default="", description="是否重複致災: 是 | 否")
+    repeat_disaster_year: str = Field(default="", description="重複致災興建年份")
+
+    # --- P3: Analysis ---
+    original_protection: str = Field(default="", description="原設計保護型式")
+    analysis_review: str = Field(default="", description="分析與檢討")
+    design_doc_evidence_id: str = Field(default="", description="設計圖說 PDF evidence ID")
+
+    # --- P4: Regulatory ---
+    soil_conservation: str = Field(default="", description="水土保持計畫: 需要已核定 | 需要未核定 | 不需要")
+    safety_assessment: str = Field(default="", description="整體安全評估")
+
+    # --- P5: Hazard ---
+    hazard_summary: list[str] = Field(default_factory=list, description="自動彙整工址環境危害項目")
+    hazard_supplement: str = Field(default="", description="工址環境危害補充說明")
+    other_supplement: str = Field(default="", description="其他補充事項")
     # --- Evidence ---
     evidence_summary: list[EvidenceSummary] = Field(default_factory=list)
     photo_count: int = 0
